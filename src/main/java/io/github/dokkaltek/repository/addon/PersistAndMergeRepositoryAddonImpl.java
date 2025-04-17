@@ -1,23 +1,20 @@
 package io.github.dokkaltek.repository.addon;
 
-import jakarta.persistence.Column;
+import io.github.dokkaltek.helper.QueryData;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.SequenceGenerator;
-import jakarta.persistence.Table;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.HibernateException;
-import org.hibernate.annotations.GenericGenerator;
 import org.springframework.data.jpa.repository.JpaContext;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllSQL;
+import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllWithSequenceId;
 
 /**
  * Implementation of {@link PersistAndMergeRepositoryAddon}.
@@ -26,7 +23,6 @@ import java.util.Map;
  */
 @RequiredArgsConstructor
 public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRepositoryAddon<T> {
-  private static final int ID_PLACEHOLDER_SIZE = 2;
   private final JpaContext jpaContext;
 
   @Transactional
@@ -36,6 +32,9 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
     return entity;
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> S persistAndFlush(S entity) {
@@ -45,6 +44,9 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
     return entity;
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> List<S> persistAll(Iterable<S> entryList) {
@@ -52,20 +54,22 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
       return Collections.emptyList();
     }
 
-    EntityManager entityManager = null;
-    List<S> result = new ArrayList<>();
+      List<S> result;
+      try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
+        result = new ArrayList<>();
 
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
+        for (S entity : entryList) {
+            entityManager.persist(entity);
+            result.add(entity);
+        }
       }
-      entityManager.persist(entity);
-      result.add(entity);
-    }
 
-    return result;
+      return result;
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> List<S> persistAllAndFlush(Iterable<S> entryList) {
@@ -73,38 +77,42 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
       return Collections.emptyList();
     }
 
-    EntityManager entityManager = null;
-    List<S> result = new ArrayList<>();
+      List<S> result;
+      try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
+        result = new ArrayList<>();
 
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
+        for (S entity : entryList) {
+            entityManager.persist(entity);
+            entityManager.flush();
+            result.add(entity);
+        }
       }
-      entityManager.persist(entity);
-      entityManager.flush();
-      result.add(entity);
-    }
 
-    return result;
+      return result;
   }
 
   /**
-   * Deletes a registry from the database without checking if it exists or not.
-   *
-   * @param entity The entity to delete.
+   * {@inheritDoc}
    */
+  @Transactional
   @Override
   public <S extends T> void removeWithoutChecks(S entity) {
     EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     entityManager.remove(entity);
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> S merge(S entity) {
     return jpaContext.getEntityManagerByManagedType(entity.getClass()).merge(entity);
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> S mergeAndFlush(S entity) {
@@ -114,6 +122,9 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
     return result;
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> List<S> mergeAll(Iterable<S> entryList) {
@@ -121,20 +132,22 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
       return Collections.emptyList();
     }
 
-    EntityManager entityManager = null;
-    List<S> result = new ArrayList<>();
+      List<S> result;
+      try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
+        result = new ArrayList<>();
 
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
+        for (S entity : entryList) {
+            entityManager.merge(entity);
+            result.add(entity);
+        }
       }
-      entityManager.merge(entity);
-      result.add(entity);
-    }
 
-    return result;
+      return result;
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Transactional
   @Override
   public <S extends T> List<S> mergeAllAndFlush(Iterable<S> entryList) {
@@ -142,121 +155,81 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
       return Collections.emptyList();
     }
 
-    EntityManager entityManager = null;
     List<S> result = new ArrayList<>();
 
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
+    try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
+      for (S entity : entryList) {
+          entityManager.merge(entity);
+          entityManager.flush();
+          result.add(entity);
       }
-      entityManager.merge(entity);
-      entityManager.flush();
-      result.add(entity);
     }
 
     return result;
   }
 
   /**
-   * Creates a registry in the database without checking if it exists for each element of each collection.
-   * All collections should use the same transaction manager, which is derived from the main entity list passed.
-   *
-   * @param entryList     The entity to save.
-   * @param extraEntities Other table entities to store in the same query.
+   * {@inheritDoc}
    */
-  @Transactional
-  @Modifying
   @Override
   public <S extends T> void insertAll(Iterable<S> entryList, Iterable<?>... extraEntities) {
-    if (entryList == null || !entryList.iterator().hasNext()) {
-      return;
-    }
-
-    EntityManager entityManager = null;
-    StringBuilder insertQuery = new StringBuilder();
-    Map<Integer, Object> bindings = new HashMap<>();
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
-      }
-      insertQuery.append(generateIntoStatement(entity, bindings));
-    }
-
-    for (Iterable<?> entityList : extraEntities) {
-      for (Object entity : entityList) {
-        insertQuery.append(generateIntoStatement(entity, bindings));
-      }
-    }
-
-    insertAllItems(entityManager, generateInsertAllSQL(insertQuery), bindings);
+    // TODO
   }
 
   /**
-   * Creates a registry in the database without checking if it exists for each element of the collection.
-   *
-   * @param entryList The entity to save.
+   * {@inheritDoc}
    */
   @Transactional
   @Modifying
   @Override
-  public <S extends T> void insertAll(Iterable<S> entryList) {
+  public <S extends T> void oracleInsertAll(Iterable<S> entryList, Iterable<?>... extraEntities) {
     if (entryList == null || !entryList.iterator().hasNext()) {
       return;
     }
 
-    EntityManager entityManager = null;
-    StringBuilder insertQuery = new StringBuilder();
-    Map<Integer, Object> bindings = new HashMap<>();
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
-      }
-      insertQuery.append(generateIntoStatement(entity, bindings));
-    }
-
-    insertAllItems(entityManager, generateInsertAllSQL(insertQuery), bindings);
+    EntityManager entityManager = resolveEntityManagerFromLists(entryList);
+    QueryData oracleInsert = generateOracleInsertAllSQL(entryList, extraEntities);
+    insertAllItems(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
   }
 
   /**
-   * Creates a registry in the database calculating the id for each entry.
-   *
-   * @param entryList         The entity to save.
-   * @param idParamToGenerate The id parameter to autogenerate by a table sequence.
+   * {@inheritDoc}
    */
   @Transactional
   @Modifying
   @Override
-  public <S extends T> void insertAllWithSequenceId(Iterable<S> entryList, String idParamToGenerate) {
+  public <S extends T> void oracleInsertAllWithSequenceId(Iterable<S> entryList, String idParamToGenerate) {
+    oracleInsertAllWithSequence(entryList, idParamToGenerate, null);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Transactional
+  @Modifying
+  @Override
+  public <S extends T> void oracleInsertAllWithSequenceId(Iterable<S> entryList, String idParamToGenerate,
+                                                          String sequenceName) {
+    oracleInsertAllWithSequence(entryList, idParamToGenerate, sequenceName);
+  }
+
+  /**
+   * Implementation of the oracle insert all with sequence.
+   * @param entryList The entries to insert.
+   * @param idParamToGenerate The id parameter to generate with a sequence.
+   * @param sequenceName The sequence name.
+   * @param <S> The entries type.
+   */
+  private <S extends T> void oracleInsertAllWithSequence(Iterable<S> entryList, String idParamToGenerate,
+                                                         String sequenceName) {
     if (entryList == null || !entryList.iterator().hasNext()) {
       return;
     }
 
-    EntityManager entityManager = null;
-    StringBuilder insertQuery = new StringBuilder();
-    Map<Integer, Object> bindings = new HashMap<>();
-
-    for (S entity : entryList) {
-      if (entityManager == null) {
-        entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
-      }
-
-      if (insertQuery.isEmpty()) {
-        insertQuery.append("INSERT INTO ").append(getEntityTable(entity))
-          .append(" (").append(getEntityColumns(entity, idParamToGenerate))
-          .append(") SELECT ").append(getEntitySequenceName(entity))
-          .append(".nextval, mt.* FROM(");
-      } else {
-        insertQuery.append(" UNION ");
-      }
-
-      insertQuery.append(generateSelectFromEntryAndSequence(entity, idParamToGenerate, bindings));
-    }
-
-    insertQuery.append(") mt");
-
-    insertAllItems(entityManager, insertQuery.toString(), bindings);
+    EntityManager entityManager = resolveEntityManagerFromLists(entryList);
+    QueryData queryData = generateOracleInsertAllWithSequenceId(entryList, idParamToGenerate, sequenceName);
+    insertAllItems(entityManager, queryData.getQuery(), queryData.getPositionBindings());
   }
-
 
   /**
    * Performs the insert of the elements from the insert all query.
@@ -276,183 +249,20 @@ public class PersistAndMergeRepositoryAddonImpl<T> implements PersistAndMergeRep
   }
 
   /**
-   * Generates the insert SQL for an entity.
-   *
-   * @param insertsSql The insert sql statements.
-   * @return The generated insert SQL for the entity.
+   * Resolves the entity manager to use from a group of lists of entries.
+   * @param mainList The main list to search for.
+   * @param extraLists The extra lists to search for.
+   * @return The found {@link EntityManager} or null.
    */
-  private static String generateInsertAllSQL(StringBuilder insertsSql) {
-    return "INSERT ALL \n " + insertsSql.toString() + " SELECT * FROM dual";
-  }
-
-  /**
-   * Generates the "into" part of the insert all statement.
-   *
-   * @param entity   The entity to generate the part of.
-   * @param bindings The map with the parameter bindings.
-   * @return The "into" part of the insert all statement for an element.
-   */
-  private static String generateIntoStatement(Object entity, Map<Integer, Object> bindings) {
-    return "INTO " + getEntityTable(entity) + getEntityColumnsIntoValues(entity, bindings);
-  }
-
-  /**
-   * Get the entity table name.
-   *
-   * @param entity An instance of the entity to get the table of.
-   * @return The name of the table of the entity.
-   */
-  private static String getEntityTable(Object entity) {
-    Table entityTable = entity.getClass().getAnnotation(Table.class);
-    return entityTable.name();
-  }
-
-  /**
-   * Get the entity sequence name.
-   *
-   * @param entity An instance of the entity to get the table of.
-   * @return The name of the sequence of the entity.
-   */
-  private static String getEntitySequenceName(Object entity) {
-    Class<?> entityClass = entity.getClass();
-    var sequenceName = "";
-
-    while (entityClass != Object.class) {
-      GenericGenerator genericGenerator = entityClass.getAnnotation(GenericGenerator.class);
-      SequenceGenerator sequenceAnnotation = entityClass.getAnnotation(SequenceGenerator.class);
-
-      if (sequenceAnnotation != null || genericGenerator != null) {
-        if (sequenceAnnotation != null) {
-          sequenceName = sequenceAnnotation.sequenceName();
-        } else {
-          sequenceName = Arrays.stream(genericGenerator.parameters())
-            .filter(param -> "sequence_name".equals(param.name()))
-            .findFirst().map(org.hibernate.annotations.Parameter::value)
-            .orElse("");
+  private EntityManager resolveEntityManagerFromLists(Iterable<?> mainList, Iterable<?>... extraLists) {
+      if (mainList != null && mainList.iterator().hasNext())
+        return jpaContext.getEntityManagerByManagedType(mainList.iterator().next().getClass());
+      else if (extraLists != null){
+        for (Iterable<?> extraList : extraLists) {
+          if (extraList != null && extraList.iterator().hasNext())
+            return jpaContext.getEntityManagerByManagedType(extraList.iterator().next().getClass());
         }
-
-        break;
       }
-
-      entityClass = entityClass.getSuperclass();
-    }
-
-    return sequenceName;
-  }
-
-  /**
-   * Generate the '(columns) VALUES (values)' sql part of the insert into query.
-   *
-   * @param entity   The entity to get the columns as a {@link StringBuilder} representation of.
-   * @param bindings The parameter bindings.
-   * @return The generated query fragment.
-   */
-  private static StringBuilder getEntityColumnsIntoValues(Object entity, Map<Integer, Object> bindings) {
-    var allColumns = new StringBuilder();
-    var columnValues = new StringBuilder();
-
-    for (Field field : retrieveFields(entity.getClass())) {
-      // Requires the @Column annotation to be in all entity columns we want to get
-      if (!field.isAnnotationPresent(Column.class)) {
-        continue;
-      }
-
-      Column column = field.getAnnotation(Column.class);
-      if (!allColumns.isEmpty()) {
-        allColumns.append(", ");
-        columnValues.append(", ");
-      }
-
-      allColumns.append(column.name());
-
-      Object columnValue = ReflectionUtil.getValue(entity, field.getName());
-      bindings.put(bindings.size() + 1, columnValue);
-      columnValues.append("?").append(bindings.size());
-    }
-    return new StringBuilder("(").append(allColumns).append(") VALUES (").append(columnValues).append(")\n");
-  }
-
-  /**
-   * Gets the entity columns, placing the id column first.
-   *
-   * @param entry   The entry to get the columns of.
-   * @param idParam The param to place first on the string.
-   * @return A string with columns of the entity separated with commas.
-   */
-  private static String getEntityColumns(Object entry, String idParam) {
-    var allColumns = new StringBuilder();
-    String idColumn = idParam;
-
-
-    for (Field field : retrieveFields(entry.getClass())) {
-      // Requires the @Column annotation to be in all entity columns we want to get
-      if (!field.isAnnotationPresent(Column.class)) {
-        continue;
-      }
-
-      Column column = field.getAnnotation(Column.class);
-      if (!allColumns.isEmpty() && !idParam.equals(field.getName())) {
-        allColumns.append(", ");
-      } else {
-        allColumns.append("{}");
-      }
-
-      if (idParam.equals(field.getName())) {
-        idColumn = column.name();
-      } else {
-        allColumns.append(column.name());
-      }
-    }
-
-    return allColumns.replace(0, ID_PLACEHOLDER_SIZE, idColumn).toString();
-  }
-
-  /**
-   * Generates a select that returns a table with the values of the array along with the sequence as id.
-   *
-   * @param entry The entity to get the columns as a {@link StringBuilder} representation of.
-   * @return The columns of the entity as a string.
-   */
-  private static String generateSelectFromEntryAndSequence(Object entry, String idParam,
-                                                           Map<Integer, Object> bindings) {
-    var columnValues = new StringBuilder();
-
-    for (Field field : retrieveFields(entry.getClass())) {
-      // Requires the @Column annotation to be in all entity columns we want to get
-      if (!field.isAnnotationPresent(Column.class) || idParam.equals(field.getName())) {
-        continue;
-      }
-
-      Column column = field.getAnnotation(Column.class);
-      if (!columnValues.isEmpty()) {
-        columnValues.append(", ");
-      }
-
-      Object columnValue = ReflectionUtil.getValue(entry, field.getName());
-
-      if (columnValue != null) {
-        bindings.put(bindings.size() + 1, columnValue);
-        columnValues.append("(?").append(bindings.size()).append(") as ").append(column.name());
-      } else {
-        columnValues.append("NULL as").append(column.name());
-      }
-    }
-    return "SELECT " + columnValues + " FROM DUAL";
-  }
-
-  /**
-   * Get all the declared fields of the class.
-   *
-   * @param entityClass The class to get the fields.
-   * @return A List of the fields.
-   */
-  private static List<Field> retrieveFields(Class<?> entityClass) {
-    List<Field> fields = new ArrayList<>(Arrays.asList(entityClass.getDeclaredFields()));
-    // Add all fields of super classes
-    while (entityClass.getSuperclass() != Object.class) {
-      entityClass = entityClass.getSuperclass();
-      fields.addAll(Arrays.asList(entityClass.getDeclaredFields()));
-    }
-    return fields;
+      throw new NullPointerException("No entry was found to get the entity manager from.");
   }
 }
