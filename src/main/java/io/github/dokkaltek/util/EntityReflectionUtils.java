@@ -1,22 +1,30 @@
 package io.github.dokkaltek.util;
 
 import io.github.dokkaltek.exception.EntityReflectionException;
+import io.github.dokkaltek.helper.EntityField;
+import jakarta.persistence.Column;
+import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.SequenceGenerator;
+import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.GenericGenerator;
-import org.hibernate.annotations.IdGeneratorType;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Utility class to reflect on database entities.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class EntityReflectionUtils {
+    private static final Pattern CAPS_PATTERN = Pattern.compile("(?<![\\-_A-Z])[A-Z]+");
 
     /**
      * Gets a field from an object.
@@ -47,6 +55,75 @@ public class EntityReflectionUtils {
             fields.addAll(Arrays.asList(entityClass.getDeclaredFields()));
         }
         return fields;
+    }
+
+    /**
+     * Get the entity table name.
+     *
+     * @param entity An instance of the entity to get the table of.
+     * @return The name of the table of the entity.
+     */
+    public static String getEntityTable(Object entity) {
+        Table entityTable = entity.getClass().getAnnotation(Table.class);
+        if (entityTable == null) {
+            throw new EntityReflectionException("Entity " + entity.getClass().getCanonicalName() +
+                    " doesn't have a table annotation");
+        }
+
+        // If the table annotation doesn't have the value of the table name, use the class name
+        if (entityTable.name().isEmpty()) {
+            return entity.getClass().getSimpleName();
+        }
+
+        return entityTable.name();
+    }
+
+    /**
+     * Gets the list of column names and their value.
+     * @param entity The entity to get the columns from.
+     * @return A map with the column name as key and the value of the column as value.
+     */
+    public static List<EntityField> getEntityColumns(Object entity) {
+        List<Field> classFields = EntityReflectionUtils.retrieveClassFields(entity.getClass());
+        List<EntityField> columnsList = new ArrayList<>(classFields.size());
+        try {
+            for (Field field : classFields) {
+                EntityField entityField = EntityField.builder()
+                        .fieldName(field.getName())
+                        .value(field.get(entity))
+                        .build();
+                String columnName = field.getName();
+                boolean skipColumnCheck = field.isAnnotationPresent(OneToMany.class) ||
+                        field.isAnnotationPresent(ManyToOne.class) || field.isAnnotationPresent(ManyToMany.class);
+
+                // If the column annotation is not present we save the name of the column and continue
+                if (!field.isAnnotationPresent(Column.class) && !skipColumnCheck) {
+                    if (!checkInvalidModifiers(field)) {
+                        columnName = escapeCaseCaps(columnName);
+                        entityField.setColumnName(columnName);
+                        columnsList.add(entityField);
+                    }
+                    skipColumnCheck = true;
+                }
+
+                if (skipColumnCheck)
+                    continue;
+
+                // In case it has the column annotation with the name, we use that instead
+                Column column = field.getAnnotation(Column.class);
+                if (column != null && !column.name().isEmpty()) {
+                    columnName = column.name();
+                } else {
+                    columnName = escapeCaseCaps(columnName);
+                }
+
+                entityField.setColumnName(columnName);
+                columnsList.add(entityField);
+            }
+        } catch (IllegalAccessException ex) {
+            throw new EntityReflectionException(ex);
+        }
+        return columnsList;
     }
 
     /**
@@ -93,5 +170,31 @@ public class EntityReflectionUtils {
             throw new EntityReflectionException("Field " + fieldName + " not found for class " +
                     objClass.getCanonicalName());
         }
+    }
+
+    /**
+     * Escapes each capital letters with the specified separator table column names.
+     * @param str The string to escape the caps of.
+     * @return The converted string.
+     */
+    private static String escapeCaseCaps(String str) {
+        String escapedCapsStr = CAPS_PATTERN.matcher(str).replaceAll("_$0");
+
+        if (escapedCapsStr.startsWith("_")) {
+            escapedCapsStr = escapedCapsStr.substring(1);
+        }
+
+        return escapedCapsStr.toLowerCase(Locale.getDefault());
+    }
+
+    /**
+     * Checks if a field has invalid column modifiers.
+     * @param field The field to check.
+     * @return True if the field has invalid column modifiers.
+     */
+    private static boolean checkInvalidModifiers(Field field) {
+        return Modifier.isStatic(field.getModifiers()) ||
+                Modifier.isFinal(field.getModifiers()) ||
+                Modifier.isTransient(field.getModifiers());
     }
 }

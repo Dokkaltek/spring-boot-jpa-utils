@@ -1,16 +1,16 @@
 package io.github.dokkaltek.util;
 
+import io.github.dokkaltek.helper.EntityField;
 import io.github.dokkaltek.helper.QueryData;
-import jakarta.persistence.Column;
-import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
-import java.lang.reflect.Field;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static io.github.dokkaltek.util.EntityReflectionUtils.getEntitySequenceName;
+import static io.github.dokkaltek.util.EntityReflectionUtils.getEntityTable;
 
 /**
  * Utility class to build query strings operations.
@@ -29,37 +29,23 @@ public class QueryBuilderUtils {
         var allColumns = new StringBuilder();
         var columnValues = new StringBuilder();
 
-        for (Field field : EntityReflectionUtils.retrieveClassFields(entity.getClass())) {
-            // Requires the @Column annotation to be in all entity columns we want to get
-            if (!field.isAnnotationPresent(Column.class)) {
-                continue;
-            }
-
-            Column column = field.getAnnotation(Column.class);
+        List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
+        for (EntityField column : columns) {
             if (!allColumns.isEmpty()) {
                 allColumns.append(", ");
                 columnValues.append(", ");
             }
 
-            allColumns.append(column.name());
+            allColumns.append(column.getColumnName());
 
-            Object columnValue = EntityReflectionUtils.getField(entity, field.getName());
+            Object columnValue = column.getValue();
             bindings.put(bindings.size() + 1, columnValue);
             columnValues.append("?").append(bindings.size());
         }
         return new StringBuilder("(").append(allColumns).append(") VALUES (").append(columnValues).append(')');
     }
 
-    /**
-     * Get the entity table name.
-     *
-     * @param entity An instance of the entity to get the table of.
-     * @return The name of the table of the entity.
-     */
-    public static String getEntityTable(Object entity) {
-        Table entityTable = entity.getClass().getAnnotation(Table.class);
-        return entityTable.name();
-    }
+
 
     /**
      * Gets the entity columns, placing the id column first.
@@ -68,27 +54,22 @@ public class QueryBuilderUtils {
      * @param idParam The param to place first on the string.
      * @return A string with columns of the entity separated with commas.
      */
-    public static String getEntityColumns(Object entry, String idParam) {
+    public static String getEntityColumnsWithIdFirst(Object entry, String idParam) {
         var allColumns = new StringBuilder();
         String idColumn = idParam;
 
-        for (Field field : EntityReflectionUtils.retrieveClassFields(entry.getClass())) {
-            // Requires the @Column annotation to be in all entity columns we want to get
-            if (!field.isAnnotationPresent(Column.class)) {
-                continue;
-            }
-
-            Column column = field.getAnnotation(Column.class);
-            if (!allColumns.isEmpty() && !idParam.equals(field.getName())) {
+        List<EntityField> columnsList = EntityReflectionUtils.getEntityColumns(entry);
+        for (EntityField field : columnsList) {
+            if (!allColumns.isEmpty() && !idParam.equals(field.getFieldName())) {
                 allColumns.append(", ");
             } else {
                 allColumns.append("{}");
             }
 
-            if (idParam.equals(field.getName())) {
-                idColumn = column.name();
+            if (idParam.equals(field.getFieldName())) {
+                idColumn = field.getColumnName();
             } else {
-                allColumns.append(column.name());
+                allColumns.append(field.getColumnName());
             }
         }
 
@@ -154,7 +135,7 @@ public class QueryBuilderUtils {
         for (S entity : entryList) {
             if (insertQuery.isEmpty()) {
                 insertQuery.append("INSERT INTO ").append(getEntityTable(entity))
-                        .append(" (").append(getEntityColumns(entity, idParamToGenerate))
+                        .append(" (").append(getEntityColumnsWithIdFirst(entity, idParamToGenerate))
                         .append(") SELECT ").append(sequence)
                         .append(".nextval, mt.* FROM(");
             } else {
@@ -180,24 +161,23 @@ public class QueryBuilderUtils {
                                                              Map<Integer, Object> bindings) {
         var columnValues = new StringBuilder();
 
-        for (Field field : EntityReflectionUtils.retrieveClassFields(entry.getClass())) {
+        for (EntityField field : EntityReflectionUtils.getEntityColumns(entry)) {
             // Requires the @Column annotation to be in all entity columns we want to get
-            if (!field.isAnnotationPresent(Column.class) || idParam.equals(field.getName())) {
+            if (idParam.equals(field.getFieldName())) {
                 continue;
             }
 
-            Column column = field.getAnnotation(Column.class);
             if (!columnValues.isEmpty()) {
                 columnValues.append(", ");
             }
 
-            Object columnValue = EntityReflectionUtils.getField(entry, field.getName());
+            Object columnValue = field.getValue();
 
             if (columnValue != null) {
                 bindings.put(bindings.size() + 1, columnValue);
-                columnValues.append("(?").append(bindings.size()).append(") as ").append(column.name());
+                columnValues.append("(?").append(bindings.size()).append(") as ").append(field.getColumnName());
             } else {
-                columnValues.append("NULL as").append(column.name());
+                columnValues.append("NULL as").append(field.getColumnName());
             }
         }
         return "SELECT " + columnValues + " FROM DUAL";
