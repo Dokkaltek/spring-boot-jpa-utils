@@ -5,7 +5,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.jpa.repository.JpaContext;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -234,19 +233,11 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   }
 
   /**
-   * Gets the managed type of the repository.
-   * @return The managed type.
-   */
-  private Class<T> getManagedType() {
-    return (Class<T>) ((ParameterizedType) getClass().getGenericSuperclass()).getActualTypeArguments()[0];
-  }
-
-  /**
    * Resolves the {@link EntityManager} from the parametrized type.
    * @param jpaContext The JPA context.
    * @return The found {@link EntityManager}.
    */
   private EntityManager getEntityManager(JpaContext jpaContext) {
-    return jpaContext.getEntityManagerByManagedType(getManagedType());
+    return jpaContext.getEntityManagerByManagedType();
   }
 }

@@ -15,5 +15,7 @@ import lombok.NoArgsConstructor;
 public class EntityField {
     private String fieldName;
     private String columnName;
+    private boolean isId;
+    private boolean isGeneratedValue;
     private Object value;
 }

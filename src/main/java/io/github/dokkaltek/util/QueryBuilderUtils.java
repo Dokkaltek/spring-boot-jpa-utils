@@ -1,13 +1,20 @@
 package io.github.dokkaltek.util;
 
+import io.github.dokkaltek.exception.EntityReflectionException;
 import io.github.dokkaltek.helper.EntityField;
 import io.github.dokkaltek.helper.QueryData;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.springframework.data.util.Pair;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static io.github.dokkaltek.util.EntityReflectionUtils.getEntitySequenceName;
 import static io.github.dokkaltek.util.EntityReflectionUtils.getEntityTable;
@@ -24,13 +31,18 @@ public class QueryBuilderUtils {
      * @param entity   The entity to get the columns as a {@link StringBuilder} representation of.
      * @param bindings The parameter bindings.
      * @return The generated query fragment.
+     * @param <S> The entity type.
      */
-    public static StringBuilder getEntityColumnsIntoValues(Object entity, Map<Integer, Object> bindings) {
-        var allColumns = new StringBuilder();
-        var columnValues = new StringBuilder();
+    public static <S> StringBuilder getEntityColumnsIntoValues(S entity, Map<Integer, Object> bindings) {
+        StringBuilder allColumns = new StringBuilder();
+        StringBuilder columnValues = new StringBuilder();
 
         List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
         for (EntityField column : columns) {
+            if (column.getValue() == null && column.isGeneratedValue()) {
+                continue;
+            }
+
             if (!allColumns.isEmpty()) {
                 allColumns.append(", ");
                 columnValues.append(", ");
@@ -45,6 +57,38 @@ public class QueryBuilderUtils {
         return new StringBuilder("(").append(allColumns).append(") VALUES (").append(columnValues).append(')');
     }
 
+    /**
+     * Generates the '(columns) VALUES (values), (more values) ...' sql part of the insert query and updates the
+     * bindings map.
+     * @param entries The entries to generate the part of.
+     * @param bindings The bindings map.
+     * @return The generated query fragment.
+     * @param <S> The entity type.
+     */
+    public static <S> String getMultipleEntityColumnsIntoValues(Collection<S> entries, Map<Integer, Object> bindings) {
+        StringBuilder mainQuery = new StringBuilder();
+        for (Object entry : entries) {
+          if (mainQuery.isEmpty()) {
+              mainQuery = getEntityColumnsIntoValues(entry, bindings);
+          } else {
+              mainQuery.append(", ").append('(');
+              List<EntityField> fields = EntityReflectionUtils.getEntityColumns(entry);
+              for (int i = 0; i < fields.size(); i++) {
+                  EntityField field = fields.get(i);
+                  if (field.getValue() == null && field.isGeneratedValue()) {
+                      continue;
+                  }
+                  bindings.put(bindings.size() + 1, field.getValue());
+                  mainQuery.append('?').append(bindings.size());
+                  if (i + 1 < fields.size()) {
+                      mainQuery.append(", ");
+                  }
+              }
+              mainQuery.append(')');
+          }
+        }
+        return mainQuery.toString();
+    }
 
 
     /**
@@ -55,7 +99,7 @@ public class QueryBuilderUtils {
      * @return A string with columns of the entity separated with commas.
      */
     public static String getEntityColumnsWithIdFirst(Object entry, String idParam) {
-        var allColumns = new StringBuilder();
+        StringBuilder allColumns = new StringBuilder();
         String idColumn = idParam;
 
         List<EntityField> columnsList = EntityReflectionUtils.getEntityColumns(entry);
@@ -85,6 +129,21 @@ public class QueryBuilderUtils {
      */
     public static String generateIntoStatement(Object entity, Map<Integer, Object> bindings) {
         return "INTO " + getEntityTable(entity) + getEntityColumnsIntoValues(entity, bindings);
+    }
+
+    /**
+     * Generates a multi-row insert.
+     *
+     * @param entries   The entries to generate the insert of.
+     * @return The "into" part of the insert all statement for an element.
+     */
+    public static <S> Pair<String, Map<Integer, Object>> generateMultiInsertStatement(Collection<S> entries) {
+        S entity = entries.stream().filter(Objects::nonNull).findFirst()
+                .orElseThrow(() -> new EntityReflectionException("Can't get table name of null collection object"));
+        List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
+        Map<Integer, Object> bindings = new HashMap<>(columns.size() * entries.size());
+        String query = "INSERT INTO " + getEntityTable(entity) + getMultipleEntityColumnsIntoValues(entries, bindings);
+        return Pair.of(query, bindings);
     }
 
     /**
@@ -129,7 +188,7 @@ public class QueryBuilderUtils {
         String sequence = sequenceName;
 
         if (sequence == null || sequence.isEmpty()) {
-            sequence = getEntitySequenceName(entryList.iterator().next());
+            sequence = getEntitySequenceName(entryList.iterator().next(), idParamToGenerate);
         }
 
         for (S entity : entryList) {
@@ -142,12 +201,55 @@ public class QueryBuilderUtils {
                 insertQuery.append(" UNION ");
             }
 
-            insertQuery.append(generateSelectFromEntryAndSequence(entity, idParamToGenerate, bindings));
+            insertQuery.append(generateOracleSelectForInsertFromEntryAndSequence(entity, idParamToGenerate, bindings));
         }
 
         insertQuery.append(") mt");
 
         return new QueryData(insertQuery.toString(), bindings);
+    }
+
+    /**
+     * Generates a map of sequences for each entity.
+     * @param entityManager The entity manager.
+     * @param sequenceQuantityMap A map with the name of the sequence and the number of entities to generate.
+     * @return A map with the number sequences for each entity.
+     */
+    public static Map<String, List<Long>> getOracleSequencesForEntities(EntityManager entityManager,
+                                                                        Map<String, Integer> sequenceQuantityMap) {
+        StringBuilder columns = new StringBuilder();
+        int maxSequenceNum = 0;
+        for (Map.Entry<String, Integer> entry : sequenceQuantityMap.entrySet()) {
+            if (!columns.isEmpty())
+                columns.append(", ");
+
+            columns.append("(CASE WHEN rownum <= ").append(entry.getValue()).append(" THEN ").append(entry.getKey())
+                    .append(".nextval ELSE null END) as SEQUENCE_").append(entry.getKey());
+
+            if (entry.getValue() > maxSequenceNum)
+                maxSequenceNum = entry.getValue();
+        }
+
+        String query = "SELECT " + columns + " FROM (SELECT level FROM dual CONNECT BY level <= " + maxSequenceNum +
+                ")";
+        Query sequenceQuery = entityManager.createNativeQuery(query);
+
+        List<Object[]> sequences = sequenceQuery.getResultList();
+        List<String> sequenceNames = sequenceQuantityMap.keySet().stream().toList();
+        Map<String, List<Long>> sequencesByEntity = new HashMap<>(sequenceQuantityMap.size());
+        for (Object[] sequence : sequences) {
+            for (int i = 0; i < sequence.length; i++) {
+                String sequenceName = sequenceNames.get(i);
+                List<Long> sequenceList = sequencesByEntity.getOrDefault(sequenceName,
+                        new ArrayList<>(sequenceQuantityMap.get(sequenceName)));
+                if (sequence[i] != null) {
+                    sequenceList.add(((Number) sequence[i]).longValue());
+                }
+                sequencesByEntity.put(sequenceName, sequenceList);
+            }
+        }
+
+        return sequencesByEntity;
     }
 
     /**
@@ -157,9 +259,9 @@ public class QueryBuilderUtils {
      * @param idParam The id param that will be generated with a sequence.
      * @return The columns of the entity as a string.
      */
-    private static String generateSelectFromEntryAndSequence(Object entry, String idParam,
-                                                             Map<Integer, Object> bindings) {
-        var columnValues = new StringBuilder();
+    private static String generateOracleSelectForInsertFromEntryAndSequence(Object entry, String idParam,
+                                                                            Map<Integer, Object> bindings) {
+        StringBuilder columnValues = new StringBuilder();
 
         for (EntityField field : EntityReflectionUtils.getEntityColumns(entry)) {
             // Requires the @Column annotation to be in all entity columns we want to get

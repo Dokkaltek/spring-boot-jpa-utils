@@ -146,4 +146,6 @@ public interface EntityManagerRepository<T, I> {
    * @param <S>    The entity type.
    */
   <S extends T> boolean contains(S entity);
+
+  // TODO - Add entity graph, create native query, etc...
 }
