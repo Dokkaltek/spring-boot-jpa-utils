@@ -1,7 +1,7 @@
 package io.github.dokkaltek.repository.addon;
 
 import jakarta.persistence.EntityManager;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.jpa.repository.JpaContext;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,22 +15,16 @@ import java.util.Optional;
  *
  * @param <T> The entity of the repository.
  */
+@RequiredArgsConstructor
 public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepository<T, I> {
-  private final EntityManager entityManager;
-
-  /**
-   * Default constructor.
-   * @param jpaContext The JPA context.
-   */
-  public EntityManagerRepositoryImpl(@Autowired JpaContext jpaContext) {
-    this.entityManager = getEntityManager(jpaContext);
-  }
+  private final JpaContext jpaContext;
 
   /**
    * {@inheritDoc}
    */
   @Override
   public <S extends T> Optional<S> find(Class<S> entityClass, I id) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entityClass);
     S result = entityManager.find(entityClass, id);
 
     if (result == null) {
@@ -43,6 +37,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   @Transactional
   @Override
   public <S extends T> S persist(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     entityManager.persist(entity);
     return entity;
   }
@@ -53,6 +48,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   @Transactional
   @Override
   public <S extends T> S persistAndFlush(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     entityManager.persist(entity);
     entityManager.flush();
     return entity;
@@ -72,6 +68,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
 
       result = new ArrayList<>();
 
+      EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entryList.iterator().next().getClass());
       for (S entity : entryList) {
           entityManager.persist(entity);
           result.add(entity);
@@ -90,17 +87,18 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
       return Collections.emptyList();
     }
 
-      List<S> result;
+    List<S> result;
 
-      result = new ArrayList<>();
+    result = new ArrayList<>();
 
-      for (S entity : entryList) {
-          entityManager.persist(entity);
-          entityManager.flush();
-          result.add(entity);
-      }
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entryList.iterator().next().getClass());
+    for (S entity : entryList) {
+        entityManager.persist(entity);
+        entityManager.flush();
+        result.add(entity);
+    }
 
-      return result;
+    return result;
   }
 
   /**
@@ -109,6 +107,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   @Transactional
   @Override
   public <S extends T> void removeWithoutChecks(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     entityManager.remove(entity);
   }
 
@@ -118,6 +117,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   @Transactional
   @Override
   public <S extends T> S merge(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     return entityManager.merge(entity);
   }
 
@@ -127,6 +127,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   @Transactional
   @Override
   public <S extends T> S mergeAndFlush(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     S result = entityManager.merge(entity);
     entityManager.flush();
     return result;
@@ -142,16 +143,17 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
       return Collections.emptyList();
     }
 
-      List<S> result;
+    List<S> result;
 
-      result = new ArrayList<>();
+    result = new ArrayList<>();
 
-      for (S entity : entryList) {
-          entityManager.merge(entity);
-          result.add(entity);
-      }
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entryList.iterator().next().getClass());
+    for (S entity : entryList) {
+        entityManager.merge(entity);
+        result.add(entity);
+    }
 
-      return result;
+    return result;
   }
 
   /**
@@ -166,6 +168,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
 
     List<S> result = new ArrayList<>();
 
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entryList.iterator().next().getClass());
     for (S entity : entryList) {
         entityManager.merge(entity);
         entityManager.flush();
@@ -182,6 +185,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
    */
   @Override
   public <S extends T> void detach(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     entityManager.detach(entity);
   }
 
@@ -192,9 +196,10 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
    */
   @Override
   public <S extends T> void detachAll(Iterable<S> entryList) {
-      for (S entity : entryList) {
-          entityManager.detach(entity);
-      }
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entryList.iterator().next().getClass());
+    for (S entity : entryList) {
+        entityManager.detach(entity);
+    }
   }
 
   /**
@@ -204,6 +209,7 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
    */
   @Override
   public <S extends T> void refresh(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     entityManager.refresh(entity);
   }
 
@@ -217,9 +223,10 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
   @Transactional(readOnly = true)
   @Override
   public <S extends T> void refreshAll(Iterable<S> entryList) {
-      for (S entity : entryList) {
-        entityManager.refresh(entity);
-      }
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entryList.iterator().next().getClass());
+    for (S entity : entryList) {
+      entityManager.refresh(entity);
+    }
   }
 
   /**
@@ -229,15 +236,9 @@ public class EntityManagerRepositoryImpl<T, I> implements EntityManagerRepositor
    */
   @Override
   public <S extends T> boolean contains(S entity) {
+    EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
     return entityManager.contains(entity);
   }
 
-  /**
-   * Resolves the {@link EntityManager} from the parametrized type.
-   * @param jpaContext The JPA context.
-   * @return The found {@link EntityManager}.
-   */
-  private EntityManager getEntityManager(JpaContext jpaContext) {
-    return jpaContext.getEntityManagerByManagedType();
-  }
+  // TODO - Add query methods
 }

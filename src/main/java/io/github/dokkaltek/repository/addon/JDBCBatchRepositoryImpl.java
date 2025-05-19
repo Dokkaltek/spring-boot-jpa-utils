@@ -1,7 +1,9 @@
 package io.github.dokkaltek.repository.addon;
 
+import io.github.dokkaltek.exception.BatchOperationException;
 import io.github.dokkaltek.helper.EntriesWithSequence;
 import io.github.dokkaltek.helper.QueryData;
+import io.github.dokkaltek.util.QueryBuilderUtils;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
@@ -13,8 +15,17 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.util.Pair;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.sql.Blob;
+import java.sql.Clob;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Time;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -22,7 +33,9 @@ import java.util.Map;
 
 import static io.github.dokkaltek.util.EntityReflectionUtils.getEntitySequenceName;
 import static io.github.dokkaltek.util.EntityReflectionUtils.setField;
+import static io.github.dokkaltek.util.QueryBuilderUtils.generateBatchInsertsWithSequence;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateMultiInsertStatement;
+import static io.github.dokkaltek.util.QueryBuilderUtils.generateMultiInsertWithSequenceId;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllSQL;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllWithSequenceId;
 import static io.github.dokkaltek.util.QueryBuilderUtils.getOracleSequencesForEntities;
@@ -37,6 +50,7 @@ import static io.github.dokkaltek.util.QueryBuilderUtils.getOracleSequencesForEn
 public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> {
     private static final String DB_NAME = "DB_NAME";
     private static final String DB_MAJOR_VERSION = "DB_MAJOR_VERSION";
+    private static final String ORACLE_DB_NAME = "oracle";
     private final JpaContext jpaContext;
 
     @Value("${repository.jdbc-batching.batch-size:500}")
@@ -45,6 +59,8 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
     @Value("${repository.jdbc-batching.rewrite-batch-inserts:false}")
     private boolean shouldRewriteBatchInserts;
 
+    @Value("${repository.jdbc-batching.rewritten-insert-size:10}")
+    private int rewrittenBatchInsertSize;
 
     /**
      * {@inheritDoc}
@@ -53,85 +69,13 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
     @Override
     public <S extends T> void insertAll(Collection<S> entryList) {
         try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
-            if (getDbMetadata(entityManager).get(DB_NAME).toLowerCase(Locale.getDefault()).contains("oracle") &&
+            if (getDbMetadata(entityManager).get(DB_NAME).toLowerCase(Locale.getDefault()).contains(ORACLE_DB_NAME) &&
                     Integer.parseInt(getDbMetadata(entityManager).get(DB_MAJOR_VERSION)) < 23) {
                 QueryData oracleInsert = generateOracleInsertAllSQL(entryList);
                 executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
             } else {
                 Pair<String, Map<Integer, Object>> queryPair = generateMultiInsertStatement(entryList);
                 executeUpdateQuery(entityManager, queryPair.getFirst(), queryPair.getSecond());
-            }
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Modifying
-    @Override
-    public <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate) {
-        insertAllWithSequenceId(entryList, idParamToGenerate, null, 1);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Modifying
-    @Override
-    public <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate,
-                                                      String sequenceName) {
-        insertAllWithSequenceId(entryList, idParamToGenerate, sequenceName, 1);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate,
-                                                      int allocationSize) {
-        insertAllWithSequenceId(entryList, idParamToGenerate, null, allocationSize);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate,
-                                                      String sequenceName, int allocationSize) {
-        if (sequenceName == null) {
-            sequenceName = getEntitySequenceName(entryList.iterator().next(), idParamToGenerate);
-        }
-        try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
-            if (getDbMetadata(entityManager).get(DB_NAME).toLowerCase(Locale.getDefault()).contains("oracle")) {
-                QueryData oracleInsert;
-                if (allocationSize <= 1) {
-                    oracleInsert = generateOracleInsertAllWithSequenceId(entryList, idParamToGenerate, sequenceName);
-                    executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
-                } else {
-                    Map<String, List<Long>> sequencesForEntities = getOracleSequencesForEntities(entityManager,
-                            Map.of(sequenceName, entryList.size() / allocationSize));
-
-                    List<Long> sequences = sequencesForEntities.get(sequenceName);
-                    List<S> updatedEntries = new ArrayList<>(entryList.size());
-                    int lastIndex = 0;
-                    long sequence = sequences.get(lastIndex);
-                    long nextSequence = sequence + allocationSize;
-                    for (S entity : entryList) {
-                        if (sequence < nextSequence)
-                            sequence++;
-                        else {
-                            lastIndex++;
-                            sequence = sequences.get(lastIndex);
-                                nextSequence = sequence + allocationSize;
-                        }
-
-                        setField(entity, idParamToGenerate, sequence);
-                        updatedEntries.add(entity);
-                    }
-                    insertAll(updatedEntries);
-                }
-            } else {
-                // TODO 
             }
         }
     }
@@ -152,12 +96,32 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
     @Override
     public <S extends T> void insertAllInBatchOfSize(int batchSize, Collection<S> entryList,
                                                      Collection<?>... extraEntries) {
+        if (entryList == null || entryList.isEmpty())
+            return;
+
         try (EntityManager entityManger = resolveEntityManagerFromLists(entryList)) {
             Session session = entityManger.unwrap(Session.class);
             session.doWork(connection -> {
-                String databaseName = connection.getMetaData().getDatabaseProductName();
-                int version = connection.getMetaData().getDatabaseMajorVersion();
-                // TODO - Do insert alls
+                List<QueryData> queryData;
+                // Merge all lists in an array so that we can iterate over each for a different batch
+                Collection<?>[] allLists = new Collection<?>[extraEntries.length + 1];
+                allLists[0] = entryList;
+                System.arraycopy(extraEntries, 0, allLists, 1, extraEntries.length);
+
+                for (Collection<?> collection : allLists) {
+                    if (shouldRewriteBatchInserts) {
+                        String databaseName = connection.getMetaData().getDatabaseProductName()
+                                .toLowerCase(Locale.getDefault());
+                        int version = connection.getMetaData().getDatabaseMajorVersion();
+                        boolean useOracleInsert = databaseName.contains(ORACLE_DB_NAME) && version < 23;
+                        queryData = generateRewrittenBatchInserts(EntriesWithSequence.builder()
+                                        .entries(collection).build(), batchSize, rewrittenBatchInsertSize,
+                                useOracleInsert);
+                    } else {
+                        queryData = QueryBuilderUtils.generateBatchInserts(collection, batchSize);
+                    }
+                    performBatchUpdate(connection, queryData, batchSize);
+                }
             });
         }
     }
@@ -177,7 +141,30 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
     @Modifying
     @Override
     public void insertAllInBatchOfSizeWithSequence(int batchSize, Collection<EntriesWithSequence> entryList) {
-        // TODO
+        if (entryList == null || entryList.isEmpty())
+            return;
+
+        List<EntriesWithSequence> collections = entryList.stream().toList();
+        try (EntityManager entityManger = resolveEntityManagerFromLists(collections.get(0).getEntries())) {
+            Session session = entityManger.unwrap(Session.class);
+            session.doWork(connection -> {
+                List<QueryData> queryData;
+                // Merge all lists in an array so that we can iterate over each for a different batch
+                for (EntriesWithSequence collection : collections) {
+                    if (shouldRewriteBatchInserts) {
+                        String databaseName = connection.getMetaData().getDatabaseProductName()
+                                .toLowerCase(Locale.getDefault());
+                        int version = connection.getMetaData().getDatabaseMajorVersion();
+                        boolean useOracleInsert = databaseName.contains(ORACLE_DB_NAME) && version < 23;
+                        queryData = generateRewrittenBatchInserts(collection, batchSize, rewrittenBatchInsertSize,
+                                useOracleInsert);
+                    } else {
+                        queryData = generateBatchInsertsWithSequence(collection, batchSize);
+                    }
+                    performBatchUpdate(connection, queryData, batchSize);
+                }
+            });
+        }
     }
 
     /**
@@ -185,9 +172,9 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void oracleInsertAll(Collection<S> entryList, Collection<?>... extraEntities) {
-        EntityManager entityManager = resolveEntityManagerFromLists(entryList);
-        QueryData oracleInsert = generateOracleInsertAllSQL(entryList, extraEntities);
+    public void oracleInsertAll(Collection<?>... entriesToInsert) {
+        EntityManager entityManager = resolveEntityManagerFromLists(entriesToInsert[0]);
+        QueryData oracleInsert = generateOracleInsertAllSQL(entriesToInsert);
         executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
     }
 
@@ -201,11 +188,10 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
             return;
 
         if (entryList.size() == 1) {
-            EntriesWithSequence content = entryList.iterator().next();
-            oracleInsertAllWithSequence(content.getEntries(), content.getSequenceField(), content.getSequenceName());
+            singleCollectionOracleInsertAllWithSequence(entryList.iterator().next());
+        } else {
+            multiCollectionOracleInsertAllWithSequence(entryList);
         }
-
-        // TODO - Add multiple entities case
     }
 
     /**
@@ -254,20 +240,173 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
     }
 
     /**
-     * Implementation of the oracle insert all with sequence.
-     * @param entryList The entries to insert.
-     * @param idParamToGenerate The id parameter to generate with a sequence.
-     * @param sequenceName The sequence name.
+     * Inserts all entries of a collection in an Oracle database.
+     * @param entriesData The data of the entries to insert.
      */
-    private void oracleInsertAllWithSequence(Collection<?> entryList, String idParamToGenerate,
-                                                           String sequenceName) {
-        if (entryList == null || !entryList.iterator().hasNext()) {
-            return;
+    private void singleCollectionOracleInsertAllWithSequence(EntriesWithSequence entriesData) {
+        try (EntityManager entityManager = resolveEntityManagerFromLists(entriesData.getEntries())) {
+            QueryData oracleInsert;
+            int allocationSize = 1;
+            if (entriesData.getAllocationSize() != 0) {
+                allocationSize = entriesData.getAllocationSize();
+            }
+
+            if (allocationSize <= 1) {
+                oracleInsert = generateOracleInsertAllWithSequenceId(entriesData.getEntries(),
+                        entriesData.getSequenceField(), entriesData.getSequenceName());
+                executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
+            } else {
+                if (entriesData.getSequenceName() == null || entriesData.getSequenceName().isBlank()) {
+                    String sequence = getEntitySequenceName(entriesData.getEntries().iterator().next().getClass(),
+                            entriesData.getSequenceField());
+                    entriesData.setSequenceName(sequence);
+                }
+                Map<String, List<Long>> sequencesForEntities = getOracleSequencesForEntities(entityManager,
+                        Map.of(entriesData.getSequenceName(), entriesData.getEntries().size() / allocationSize));
+
+                oracleInsertAll(updateEntriesWithSequenceCollection(entriesData, sequencesForEntities));
+            }
+        }
+    }
+
+    /**
+     * Inserts all entries of a series of collections in an Oracle database.
+     * @param entriesData The data of the entries to insert.
+     */
+    private void multiCollectionOracleInsertAllWithSequence(Collection<EntriesWithSequence> entriesData) {
+        Map<String, Integer> sequencesMap = new HashMap<>(entriesData.size());
+        EntityManager entityManager =  jpaContext.getEntityManagerByManagedType(entriesData.iterator().next()
+                        .getEntries().iterator().next().getClass());
+        for (EntriesWithSequence collection : entriesData) {
+            if (collection.getSequenceName() == null || collection.getSequenceName().isBlank()) {
+                collection.setSequenceName(getEntitySequenceName(collection.getEntries().iterator().next().getClass(),
+                        collection.getSequenceField()));
+            }
+
+            if (collection.getAllocationSize() == 0) {
+                collection.setAllocationSize(1);
+            }
+
+            int allocationSize = collection.getAllocationSize();
+            sequencesMap.put(collection.getSequenceName(), collection.getEntries().size() / allocationSize);
         }
 
-        EntityManager entityManager = resolveEntityManagerFromLists(entryList);
-        QueryData queryData = generateOracleInsertAllWithSequenceId(entryList, idParamToGenerate, sequenceName);
-        executeUpdateQuery(entityManager, queryData.getQuery(), queryData.getPositionBindings());
+        Map<String, List<Long>> sequencesForEntities = getOracleSequencesForEntities(entityManager, sequencesMap);
+
+        Collection<?>[] collectionsToInsert = new ArrayList[entriesData.size()];
+        int counter = 0;
+        for (EntriesWithSequence collection : entriesData) {
+            collectionsToInsert[counter] = updateEntriesWithSequenceCollection(collection, sequencesForEntities);
+            counter++;
+        }
+
+        oracleInsertAll(collectionsToInsert);
+    }
+
+    /**
+     * Generates the SQL to insert all entries of a collection in a database.
+     * @param collection The collection of entries to insert.
+     * @param batchSize The size of the batch.
+     * @param insertSize The size of the inserts.
+     * @return The list of SQL to insert all entries of a collection in a database.
+     */
+    private static List<QueryData> generateRewrittenBatchInserts(EntriesWithSequence collection,
+                                                                 int batchSize,
+                                                                 int insertSize,
+                                                                 boolean useOracleInsertAll) {
+        if (collection == null || collection.getEntries() == null || collection.getEntries().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<?> collectionEntries = collection.getEntries().stream().toList();
+
+        boolean hasSequenceName = collection.getSequenceName() != null && !collection.getSequenceName().isBlank();
+        boolean hasSequenceField = collection.getSequenceField() != null && !collection.getSequenceField().isBlank();
+        boolean hasSequence = hasSequenceName && hasSequenceField;
+
+        int batchesSize = (int) Math.ceil((double) collectionEntries.size() / batchSize);
+        List<QueryData> queries = new ArrayList<>(batchesSize);
+
+        for (int i = 0; i < batchesSize; i++) {
+            int batchStart = i * batchesSize;
+            int batchEnd = Math.min((i + 1) * batchesSize, collectionEntries.size());
+            List<?> batchEntries = collectionEntries.subList(batchStart, batchEnd);
+
+            List<QueryData> batchQueries = createRewrittenBatchInserts(collection, batchEntries, insertSize,
+                    useOracleInsertAll, hasSequence);
+
+            // Remove all position placeholders from the queries
+            clearPositionPlaceholders(batchQueries);
+
+            // Add all batch queries into one
+            queries.addAll(batchQueries);
+
+        }
+        return queries;
+    }
+
+    private static List<QueryData> createRewrittenBatchInserts(EntriesWithSequence collection,
+                                                               List<?> batchEntries, int insertSize,
+                                                               boolean useOracleInsertAll,
+                                                               boolean hasSequence) {
+        int insertsPerBatch = (int) Math.ceil((double) batchEntries.size() / insertSize);
+        List<QueryData> batchQueries = new ArrayList<>(insertsPerBatch);
+        for (int j = 0; (j * insertSize) < batchEntries.size(); j++) {
+            int start = j * insertsPerBatch;
+            int end = Math.min((j + 1) * insertsPerBatch, collection.getEntries().size());
+            if (useOracleInsertAll) {
+                QueryData insert;
+                if (hasSequence) {
+                    insert = generateOracleInsertAllWithSequenceId(
+                            batchEntries.subList(start, end),
+                            collection.getSequenceField(), collection.getSequenceName());
+                } else {
+                    insert = generateOracleInsertAllSQL(batchEntries.subList(start, end));
+                }
+                batchQueries.add(insert);
+            } else {
+                Pair<String, Map<Integer, Object>> insert;
+                if (hasSequence) {
+                    insert = generateMultiInsertWithSequenceId(
+                            batchEntries.subList(start, end),
+                            collection.getSequenceField(), collection.getSequenceName()
+                    );
+                } else {
+                    insert = generateMultiInsertStatement(
+                            batchEntries.subList(start, end));
+                }
+                batchQueries.add(QueryData.builder()
+                        .query(insert.getFirst())
+                        .positionBindings(insert.getSecond()).build());
+            }
+        }
+        return batchQueries;
+    }
+
+    /**
+     * Removes the position placeholders from the queries.
+     * @param queries The queries to clear.
+     */
+    private static void clearPositionPlaceholders(List<QueryData> queries) {
+
+        Map<Integer, Object> bindings = new HashMap<>(queries.stream()
+                .map(item -> item.getPositionBindings().size()).reduce(Integer::sum)
+                .orElse(0));
+        for (QueryData query : queries) {
+            String querySQL = query.getQuery();
+            if (querySQL == null || querySQL.isBlank()) {
+                continue;
+            }
+
+            Map<Integer, Object> queryBindings = query.getPositionBindings();
+            if (queryBindings != null && !queryBindings.isEmpty()) {
+                for(Map.Entry<Integer, Object> entry : queryBindings.entrySet()) {
+                    bindings.put(bindings.size(), entry.getValue());
+                    querySQL = querySQL.replace("?" + entry.getKey(), "?");
+                }
+                query.setQuery(querySQL);
+            }
+        }
     }
 
     /**
@@ -318,5 +457,97 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
             metadata.put(DB_MAJOR_VERSION, String.valueOf(connection.getMetaData().getDatabaseMajorVersion()));
         });
         return metadata;
+    }
+
+    /**
+     * Updates the entries with the sequence map.
+     * @param collection The collection to update.
+     * @param sequencesForEntities The sequences map.
+     * @return The updated collection.
+     */
+    private Collection<?> updateEntriesWithSequenceCollection(EntriesWithSequence collection,
+                                                              Map<String, List<Long>> sequencesForEntities) {
+        List<Long> sequences = sequencesForEntities.get(collection.getSequenceName());
+        List<Object> updatedEntries = new ArrayList<>(collection.getEntries().size());
+        int lastIndex = 0;
+        long sequence = sequences.get(lastIndex);
+        long nextSequence = sequence + collection.getAllocationSize();
+        for (Object entity : collection.getEntries()) {
+            if (sequence < nextSequence)
+                sequence++;
+            else {
+                lastIndex++;
+                sequence = sequences.get(lastIndex);
+                nextSequence = sequence + collection.getAllocationSize();
+            }
+
+            setField(entity, collection.getSequenceField(), sequence);
+            updatedEntries.add(entity);
+        }
+        return updatedEntries;
+    }
+
+    /**
+     * Performs a JDBC batch insert or update.
+     * @param connection The connection to use.
+     * @param queries The queries to execute.
+     */
+    private void performBatchUpdate(Connection connection, List<QueryData> queries, int batchSize) {
+        String query = queries.get(0).getQuery();
+        try (PreparedStatement statement = connection.prepareStatement(query)) {
+            int counter = 0;
+            for (QueryData queryData : queries) {
+                statement.clearParameters();
+                Map<Integer, Object> bindings = queryData.getPositionBindings();
+                setStatementValues(statement, bindings);
+                statement.addBatch();
+                if ((counter + 1) % batchSize == 0 || (counter + 1) == queries.size()) {
+                    statement.executeBatch();
+                    statement.clearBatch();
+                }
+                counter++;
+            }
+        } catch (SQLException e) {
+            throw new BatchOperationException(e);
+        }
+    }
+
+    /**
+     * Sets the values of a prepared statement from a map.
+     * @param statement The statement to set the values.
+     * @param bindings The bindings to set.
+     * @throws SQLException If the statement could not be set.
+     */
+    private void setStatementValues(PreparedStatement statement, Map<Integer, Object> bindings) throws SQLException {
+        for(Map.Entry<Integer, Object> entry : bindings.entrySet()) {
+            Object paramValue = entry.getValue();
+            if (paramValue == null) {
+                statement.setNull(entry.getKey(), Types.NULL);
+            } else if (paramValue instanceof String string) {
+                statement.setString(entry.getKey(), string);
+            } else if (paramValue instanceof Integer integer) {
+                statement.setInt(entry.getKey(), integer);
+            } else if (paramValue instanceof Boolean bool) {
+                statement.setBoolean(entry.getKey(), bool);
+            } else if (paramValue instanceof Long longNum) {
+                statement.setLong(entry.getKey(), longNum);
+            } else if (paramValue instanceof Time time) {
+                statement.setTime(entry.getKey(), time);
+            } else if (paramValue instanceof BigDecimal bigDecimal) {
+                statement.setBigDecimal(entry.getKey(), bigDecimal);
+            } else if (paramValue instanceof Float floatNumber) {
+                statement.setFloat(entry.getKey(), floatNumber);
+            } else if (paramValue instanceof Double doubleNumber) {
+                statement.setDouble(entry.getKey(), doubleNumber);
+            } else if (paramValue instanceof byte[] bytes) {
+                statement.setBytes(entry.getKey(), bytes);
+            } else if (paramValue instanceof Blob blob) {
+                statement.setBlob(entry.getKey(), blob);
+            } else if (paramValue instanceof Clob clob) {
+                statement.setClob(entry.getKey(), clob);
+            } else {
+                statement.setObject(entry.getKey(), paramValue);
+            }
+        }
     }
 }

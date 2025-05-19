@@ -2,6 +2,7 @@ package io.github.dokkaltek.util;
 
 import io.github.dokkaltek.exception.EntityReflectionException;
 import io.github.dokkaltek.helper.EntityField;
+import io.github.dokkaltek.helper.EntriesWithSequence;
 import io.github.dokkaltek.helper.QueryData;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -24,6 +25,7 @@ import static io.github.dokkaltek.util.EntityReflectionUtils.getEntityTable;
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class QueryBuilderUtils {
+    private static final String INSERT_INTO = "INSERT INTO ";
 
     /**
      * Generate the '(columns) VALUES (values)' sql part of the insert into query and updates the bindings map.
@@ -39,7 +41,39 @@ public class QueryBuilderUtils {
 
         List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
         for (EntityField column : columns) {
-            if (column.getValue() == null && column.isGeneratedValue()) {
+
+            if (!allColumns.isEmpty()) {
+                allColumns.append(", ");
+                columnValues.append(", ");
+            }
+
+            allColumns.append(column.getColumnName());
+
+            Object columnValue = column.getValue();
+            bindings.put(bindings.size() + 1, columnValue);
+            columnValues.append("?").append(bindings.size());
+        }
+        return new StringBuilder("(").append(allColumns).append(") VALUES (").append(columnValues).append(')');
+    }
+
+    /**
+     * Generate the '(columns) VALUES (values)' sql part of the insert into query and updates the bindings map.
+     *
+     * @param entity   The entity to get the columns as a {@link StringBuilder} representation of.
+     * @param bindings The parameter bindings.
+     * @return The generated query fragment.
+     * @param <S> The entity type.
+     */
+    public static <S> StringBuilder getEntityColumnsIntoValuesWithSequence(S entity, Map<Integer, Object> bindings,
+                                                                           String idField, String sequenceName) {
+        StringBuilder allColumns = new StringBuilder();
+        StringBuilder columnValues = new StringBuilder();
+
+        List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
+        for (EntityField column : columns) {
+            if (column.getFieldName().equals(idField)) {
+                allColumns.append(column.getColumnName());
+                columnValues.append("nextval('").append(sequenceName).append("')");
                 continue;
             }
 
@@ -71,21 +105,34 @@ public class QueryBuilderUtils {
           if (mainQuery.isEmpty()) {
               mainQuery = getEntityColumnsIntoValues(entry, bindings);
           } else {
-              mainQuery.append(", ").append('(');
-              List<EntityField> fields = EntityReflectionUtils.getEntityColumns(entry);
-              for (int i = 0; i < fields.size(); i++) {
-                  EntityField field = fields.get(i);
-                  if (field.getValue() == null && field.isGeneratedValue()) {
-                      continue;
-                  }
-                  bindings.put(bindings.size() + 1, field.getValue());
-                  mainQuery.append('?').append(bindings.size());
-                  if (i + 1 < fields.size()) {
-                      mainQuery.append(", ");
-                  }
-              }
-              mainQuery.append(')');
+              appendEntityColumnsIntoValues(entry, mainQuery, bindings);
           }
+        }
+        return mainQuery.toString();
+    }
+
+    /**
+     * Generates the '(columns) VALUES (values), (more values) ...' sql part of the insert query and updates the
+     * bindings map.
+     * @param entries The entries to generate the part of.
+     * @param bindings The bindings map.
+     * @return The generated query fragment.
+     * @param <S> The entity type.
+     */
+    public static <S> String getMultipleEntityColumnsIntoValuesWithSequence(Collection<S> entries,
+                                                                            Map<Integer, Object> bindings,
+                                                                            String idField,
+                                                                            String sequenceName) {
+        StringBuilder mainQuery = new StringBuilder();
+        for (Object entry : entries) {
+            if (sequenceName == null) {
+                sequenceName = getEntitySequenceName(entry.getClass(), idField);
+            }
+            if (mainQuery.isEmpty()) {
+                mainQuery = getEntityColumnsIntoValuesWithSequence(entry, bindings, idField, sequenceName);
+            } else {
+                appendEntityColumnsIntoValuesWithSequence(entry, mainQuery, bindings, idField, sequenceName);
+            }
         }
         return mainQuery.toString();
     }
@@ -121,6 +168,63 @@ public class QueryBuilderUtils {
     }
 
     /**
+     * Generates a list of inserts for a collection of entries.
+     * @param entries The entries to generate the batch inserts of.
+     * @param batchSize The batch size.
+     * @return The generated batch insert queries.
+     */
+    public static List<QueryData> generateBatchInserts(Collection<?> entries, int batchSize) {
+        int batchesSize = (int) Math.ceil(entries.size() / (double) batchSize);
+
+        List<QueryData> queries = new ArrayList<>(batchesSize);
+        List<?> entriesAsList = new ArrayList<>(entries);
+        for (int i = 0; i < batchesSize; i++) {
+            int start = i * batchSize;
+            int end = Math.min((i + 1) * batchSize, entries.size());
+            List<?> batchEntries = entriesAsList.subList(start, end);
+            String entityTable = getEntityTable(batchEntries.get(0));
+            for(Object entry : batchEntries) {
+                Map<Integer, Object> bindings = new HashMap<>();
+                String query = INSERT_INTO + entityTable + getEntityColumnsIntoValues(entry, bindings);
+                queries.add(QueryData.builder().query(query).positionBindings(bindings).build());
+            }
+        }
+        return queries;
+    }
+
+    /**
+     * Generates a list of inserts for a collection of entries.
+     * @param entries The entries to generate the batch inserts of.
+     * @param batchSize The batch size.
+     * @return The generated batch insert queries.
+     */
+    public static List<QueryData> generateBatchInsertsWithSequence(EntriesWithSequence entries, int batchSize) {
+
+        int batchesSize = (int) Math.ceil(entries.getEntries().size() / (double) batchSize);
+
+        List<QueryData> queries = new ArrayList<>(batchesSize);
+        List<?> entriesAsList = new ArrayList<>(entries.getEntries());
+        String sequenceName = entries.getSequenceName();
+        String sequenceField = entries.getSequenceField();
+        for (int i = 0; i < batchesSize; i++) {
+            int start = i * batchSize;
+            int end = Math.min((i + 1) * batchSize, entries.getEntries().size());
+            List<?> batchEntries = entriesAsList.subList(start, end);
+            String entityTable = getEntityTable(batchEntries.get(0));
+            for(Object entry : batchEntries) {
+                Map<Integer, Object> bindings = new HashMap<>();
+                if (sequenceName == null) {
+                    sequenceName = getEntitySequenceName(entry.getClass(), sequenceField);
+                }
+                String query = INSERT_INTO + entityTable + getEntityColumnsIntoValuesWithSequence(entry, bindings,
+                        sequenceField, sequenceName);
+                queries.add(QueryData.builder().query(query).positionBindings(bindings).build());
+            }
+        }
+        return queries;
+    }
+
+    /**
      * Generates the "into" part of the insert statement.
      *
      * @param entity   The entity to generate the part of.
@@ -135,34 +239,50 @@ public class QueryBuilderUtils {
      * Generates a multi-row insert.
      *
      * @param entries   The entries to generate the insert of.
-     * @return The "into" part of the insert all statement for an element.
+     * @return The multi-row insert with the bindings.
      */
     public static <S> Pair<String, Map<Integer, Object>> generateMultiInsertStatement(Collection<S> entries) {
         S entity = entries.stream().filter(Objects::nonNull).findFirst()
                 .orElseThrow(() -> new EntityReflectionException("Can't get table name of null collection object"));
         List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
         Map<Integer, Object> bindings = new HashMap<>(columns.size() * entries.size());
-        String query = "INSERT INTO " + getEntityTable(entity) + getMultipleEntityColumnsIntoValues(entries, bindings);
+        String query = INSERT_INTO + getEntityTable(entity) + getMultipleEntityColumnsIntoValues(columns, bindings);
+        return Pair.of(query, bindings);
+    }
+
+    /**
+     * Generates a multi-row insert with a sequence-generated id.
+     *
+     * @param entries   The entries to generate the insert of.
+     * @param idField The id field name.
+     * @param sequenceName The sequence name. If empty, the sequence name of the class or above the id field
+     *                     will be used.
+     * @return The multi-row insert with the bindings.
+     */
+    public static <S> Pair<String, Map<Integer, Object>> generateMultiInsertWithSequenceId(Collection<S> entries,
+                                                                                           String idField,
+                                                                                           String sequenceName) {
+        S entity = entries.stream().filter(Objects::nonNull).findFirst()
+                .orElseThrow(() -> new EntityReflectionException("Can't get table name of null collection object"));
+        List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
+        Map<Integer, Object> bindings = new HashMap<>(columns.size() * entries.size());
+        String query = INSERT_INTO + getEntityTable(entity) + getMultipleEntityColumnsIntoValuesWithSequence(entries,
+           bindings, idField, sequenceName);
         return Pair.of(query, bindings);
     }
 
     /**
      * Generates the insert SQL for an entity.
      *
-     * @param entryList The main entry list to insert.
-     * @param extraEntities Other list of entries to insert.
+     * @param entriesToInsert List of entries to insert.
      * @return The generated insert SQL for the entity.
      */
-    public static <S> QueryData generateOracleInsertAllSQL(Iterable<S> entryList,
-                                                           Iterable<?>... extraEntities) {
+    public static QueryData generateOracleInsertAllSQL(Iterable<?>... entriesToInsert) {
         StringBuilder insertQuery = new StringBuilder();
         Map<Integer, Object> bindings = new HashMap<>();
-        for (S entity : entryList) {
-            insertQuery.append(generateIntoStatement(entity, bindings)).append("\n");
-        }
 
-        if (extraEntities != null) {
-            for (Iterable<?> entityList : extraEntities) {
+        if (entriesToInsert != null) {
+            for (Iterable<?> entityList : entriesToInsert) {
                 for (Object entity : entityList) {
                     insertQuery.append(generateIntoStatement(entity, bindings)).append("\n");
                 }
@@ -188,12 +308,12 @@ public class QueryBuilderUtils {
         String sequence = sequenceName;
 
         if (sequence == null || sequence.isEmpty()) {
-            sequence = getEntitySequenceName(entryList.iterator().next(), idParamToGenerate);
+            sequence = getEntitySequenceName(entryList.iterator().next().getClass(), idParamToGenerate);
         }
 
         for (S entity : entryList) {
             if (insertQuery.isEmpty()) {
-                insertQuery.append("INSERT INTO ").append(getEntityTable(entity))
+                insertQuery.append(INSERT_INTO).append(getEntityTable(entity))
                         .append(" (").append(getEntityColumnsWithIdFirst(entity, idParamToGenerate))
                         .append(") SELECT ").append(sequence)
                         .append(".nextval, mt.* FROM(");
@@ -283,5 +403,54 @@ public class QueryBuilderUtils {
             }
         }
         return "SELECT " + columnValues + " FROM DUAL";
+    }
+
+    /**
+     * Appends the entity columns into the query.
+     * @param entry The entity to get the columns of.
+     * @param mainQuery The main query.
+     * @param bindings The bindings.
+     */
+    private static void appendEntityColumnsIntoValues(Object entry, StringBuilder mainQuery,
+                                                          Map<Integer, Object> bindings) {
+        mainQuery.append(", ").append('(');
+        List<EntityField> fields = EntityReflectionUtils.getEntityColumns(entry);
+        for (int i = 0; i < fields.size(); i++) {
+            EntityField field = fields.get(i);
+            bindings.put(bindings.size() + 1, field.getValue());
+            mainQuery.append('?').append(bindings.size());
+            if (i + 1 < fields.size()) {
+                mainQuery.append(", ");
+            }
+        }
+        mainQuery.append(')');
+    }
+
+    /**
+     * Appends the entity columns into the query.
+     * @param entry The entity to get the columns of.
+     * @param mainQuery The main query.
+     * @param bindings The bindings.
+     * @param idField The sequence id field.
+     * @param sequenceName The name of the sequence to use.
+     */
+    private static void appendEntityColumnsIntoValuesWithSequence(Object entry, StringBuilder mainQuery,
+                                                      Map<Integer, Object> bindings, String idField,
+                                                                  String sequenceName) {
+        mainQuery.append(", ").append('(');
+        List<EntityField> fields = EntityReflectionUtils.getEntityColumns(entry);
+        for (int i = 0; i < fields.size(); i++) {
+            EntityField field = fields.get(i);
+            if (field.getFieldName().equals(idField)) {
+                mainQuery.append("nextval('").append(sequenceName).append("')");
+            } else {
+                bindings.put(bindings.size() + 1, field.getValue());
+                mainQuery.append('?').append(bindings.size());
+            }
+            if (i + 1 < fields.size()) {
+                mainQuery.append(", ");
+            }
+        }
+        mainQuery.append(')');
     }
 }

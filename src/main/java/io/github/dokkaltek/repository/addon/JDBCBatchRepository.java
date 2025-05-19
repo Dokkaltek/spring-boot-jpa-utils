@@ -30,61 +30,6 @@ public interface JDBCBatchRepository<T, I> {
   <S extends T> void insertAll(Collection<S> entryList);
 
   /**
-   * Inserts all registries in the database without checking if they exist for each element of the collection
-   * using the <code>INSERT INTO ... VALUES ...</code> statement.
-   * It generates the given id parameter of each element with a sequence.
-   * <br><br>
-   * This uses a default allocationSize of 1 and gets the sequence name from the entity @SequenceGenerator annotation.
-   *
-   * @param entryList     The entries to save.
-   * @param idParamToGenerate The id parameter to autogenerate by a table sequence.
-   * @param <S>           The main entity type.
-   */
-  <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate);
-
-  /**
-   * Inserts all registries in the database without checking if they exist for each element of the collection
-   * using the <code>INSERT INTO ... VALUES ...</code> statement.
-   * It generates the given id parameter of each element with a sequence.
-   * <br><br>
-   * This uses a default allocationSize of 1.
-   *
-   * @param entryList     The entries to save.
-   * @param idParamToGenerate The id parameter to autogenerate by a table sequence.
-   * @param sequenceName The name of the sequence to use for the entity.
-   * @param <S>           The main entity type.
-   */
-  <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate, String sequenceName);
-
-  /**
-   * Inserts all registries in the database without checking if they exist for each element of the collection
-   * using the <code>INSERT INTO ... VALUES ...</code> statement.
-   * It generates the given id parameter of each element with a sequence.
-   * <br><br>
-   * This gets the sequence name from the entity @SequenceGenerator annotation.
-   *
-   * @param entryList     The entries to save.
-   * @param idParamToGenerate The id parameter to autogenerate by a table sequence.
-   * @param allocationSize The allocation size of the sequence.
-   * @param <S>           The main entity type.
-   */
-  <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate, int allocationSize);
-
-  /**
-   * Inserts all registries in the database without checking if they exist for each element of the collection
-   * using the <code>INSERT INTO ... VALUES ...</code> statement.
-   * It generates the given id parameter of each element with a sequence.
-   *
-   * @param entryList     The entries to save.
-   * @param idParamToGenerate The id parameter to autogenerate by a table sequence.
-   * @param sequenceName The name of the sequence to use for the entity.
-   * @param allocationSize The allocation size of the sequence.
-   * @param <S>           The main entity type.
-   */
-  <S extends T> void insertAllWithSequenceId(Collection<S> entryList, String idParamToGenerate, String sequenceName,
-                                             int allocationSize);
-
-  /**
    * Inserts all registries in the database without checking if they exist for each element of each collection.
    * All entries must belong to the same transaction manager.
    * <br><br>
@@ -146,11 +91,9 @@ public interface JDBCBatchRepository<T, I> {
    * <br><br>
    * <b>Oracle only</b>. This uses the <code>INSERT ALL INTO</code> syntax.
    *
-   * @param entryList     The entries to save.
-   * @param extraEntities Other table entities to store in the same query.
-   * @param <S>           The main entity type.
+   * @param entriesToInsert Entries to insert.
    */
-  <S extends T> void oracleInsertAll(Collection<S> entryList, Collection<?>... extraEntities);
+  void oracleInsertAll(Collection<?>... entriesToInsert);
 
   /**
    * Inserts all registries in the database calculating the id for each entry using the sequence from the
