@@ -1,13 +1,25 @@
 package io.github.dokkaltek.util;
 
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.util.Pair;
+
+import java.util.Date;
+import java.util.regex.Pattern;
 
 /**
  * Utility class to perform operations related to specifications.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class SpecificationUtils {
+  private static final Pattern DOT_PATTERN = Pattern.compile("\\.");
 
   /**
    * Generates a specification to check a nullable field value for any object.
@@ -34,27 +46,6 @@ public class SpecificationUtils {
   public static <T> Specification<T> getExactValSpec(Object paramToSearch, Pair<String, Class<T>> paramPair) {
     return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) ->
       matchExactValCriteria(splitRoot(root, paramPair.getFirst()), criteriaBuilder, paramToSearch);
-  }
-
-  /**
-   * Divide root if embedded
-   *
-   * @param root Root to be mapped.
-   * @param s    String to be divided.
-   * @return The {@link Path} of the string.
-   */
-  public <T> Path<T> splitRoot(Root<T> root, String s) {
-    Path<T> solution;
-    if (s.contains(".")) {
-      String[] split = s.split("\\.");
-      solution = root.get(split[0]);
-      for (int i = 1; i < split.length; i++) {
-        solution = solution.get(split[i]);
-      }
-    } else {
-      solution = root.get(s);
-    }
-    return solution;
   }
 
   /**
@@ -96,8 +87,8 @@ public class SpecificationUtils {
    * @param dateToCompare   The value of the date being compared to the one in the database.
    * @return The Predicate generated.
    */
-  private Predicate matchGreaterOrEqualsThanDateCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
-                                                         Date dateToCompare) {
+  private static Predicate matchGreaterOrEqualsThanDateCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
+                                                                Date dateToCompare) {
     if (dateToCompare != null) {
       return criteriaBuilder.greaterThanOrEqualTo(rootPath.as(Date.class), dateToCompare);
     } else {
@@ -113,7 +104,7 @@ public class SpecificationUtils {
    * @param dateToCompare   The value of the date being compared to the one in the database.
    * @return The Predicate generated.
    */
-  private Predicate matchLesserThanDateCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
+  private static Predicate matchLesserThanDateCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
                                                 Date dateToCompare) {
     if (dateToCompare != null) {
       return criteriaBuilder.lessThanOrEqualTo(rootPath.as(Date.class), dateToCompare);
@@ -130,8 +121,8 @@ public class SpecificationUtils {
    * @param paramToSearch   The value of the parameter to search for.
    * @return The Predicate generated.
    */
-  private Predicate matchNullableValCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
-                                             Object paramToSearch) {
+  private static Predicate matchNullableValCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
+                                                    Object paramToSearch) {
     Predicate nullVal = criteriaBuilder.isNull(rootPath);
 
     if (paramToSearch != null) {
@@ -150,12 +141,30 @@ public class SpecificationUtils {
    * @param paramToSearch   The value of the parameter to search for.
    * @return The Predicate generated.
    */
-  private Predicate matchExactValCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
+  private static Predicate matchExactValCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
                                           Object paramToSearch) {
     if (paramToSearch != null) {
       return criteriaBuilder.equal(rootPath, paramToSearch);
     } else {
       return criteriaBuilder.isNull(rootPath);
     }
+  }
+
+  /**
+   * Divide root if embedded
+   *
+   * @param root Root to be mapped.
+   * @param s    String to be divided.
+   * @return The {@link Path} of the string.
+   */
+  private static <T> Path<T> splitRoot(Root<T> root, String s) {
+    Path<T> solution;
+    if (s.contains(".")) {
+      String[] split = DOT_PATTERN.split(s);
+      solution = root.get(split[split.length - 1]);
+    } else {
+      solution = root.get(s);
+    }
+    return solution;
   }
 }
