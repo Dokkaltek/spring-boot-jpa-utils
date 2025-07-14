@@ -1,18 +1,21 @@
 package io.github.dokkaltek.repository.addon;
 
 import io.github.dokkaltek.exception.BatchOperationException;
+import io.github.dokkaltek.helper.BatchData;
 import io.github.dokkaltek.helper.EntriesWithSequence;
 import io.github.dokkaltek.helper.QueryData;
 import io.github.dokkaltek.util.QueryBuilderUtils;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.HibernateException;
 import org.hibernate.Session;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.repository.JpaContext;
 import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.util.Pair;
+import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -33,21 +36,20 @@ import java.util.Map;
 
 import static io.github.dokkaltek.util.EntityReflectionUtils.getEntitySequenceName;
 import static io.github.dokkaltek.util.EntityReflectionUtils.setField;
+import static io.github.dokkaltek.util.QueryBuilderUtils.clearPositionPlaceholderIndexes;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateBatchInsertsWithSequence;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateMultiInsertStatement;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateMultiInsertWithSequenceId;
-import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllSQL;
+import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllStatement;
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateOracleInsertAllWithSequenceId;
-import static io.github.dokkaltek.util.QueryBuilderUtils.getOracleSequencesForEntities;
 
 /**
- * Implementation of {@link JDBCBatchRepository}.
- *
- * @param <T> The entity of the repository.
+ * Implementation of {@link BatchRepositoryAddon}.
  */
+@Repository
 @Transactional
 @RequiredArgsConstructor
-public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> {
+public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
     private static final String DB_NAME = "DB_NAME";
     private static final String DB_MAJOR_VERSION = "DB_MAJOR_VERSION";
     private static final String ORACLE_DB_NAME = "oracle";
@@ -67,15 +69,18 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void insertAll(Collection<S> entryList) {
+    public <S> void insertAll(@NotNull Collection<S> entryList) {
+        if (entryList.isEmpty())
+            return;
+
         try (EntityManager entityManager = resolveEntityManagerFromLists(entryList)) {
             if (getDbMetadata(entityManager).get(DB_NAME).toLowerCase(Locale.getDefault()).contains(ORACLE_DB_NAME) &&
                     Integer.parseInt(getDbMetadata(entityManager).get(DB_MAJOR_VERSION)) < 23) {
-                QueryData oracleInsert = generateOracleInsertAllSQL(entryList);
+                QueryData oracleInsert = generateOracleInsertAllStatement(entryList);
                 executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
             } else {
-                Pair<String, Map<Integer, Object>> queryPair = generateMultiInsertStatement(entryList);
-                executeUpdateQuery(entityManager, queryPair.getFirst(), queryPair.getSecond());
+                QueryData insertQuery = generateMultiInsertStatement(entryList);
+                executeUpdateQuery(entityManager, insertQuery.getQuery(), insertQuery.getPositionBindings());
             }
         }
     }
@@ -85,7 +90,7 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void insertAllInBatch(Collection<S> entryList, Collection<?>... extraEntries) {
+    public <S> void insertAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntries) {
         insertAllInBatchOfSize(defaultBatchSize, entryList, extraEntries);
     }
 
@@ -94,15 +99,15 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void insertAllInBatchOfSize(int batchSize, Collection<S> entryList,
+    public <S> void insertAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
                                                      Collection<?>... extraEntries) {
-        if (entryList == null || entryList.isEmpty())
+        if (entryList.isEmpty())
             return;
 
         try (EntityManager entityManger = resolveEntityManagerFromLists(entryList)) {
             Session session = entityManger.unwrap(Session.class);
             session.doWork(connection -> {
-                List<QueryData> queryData;
+                List<BatchData> batchesData;
                 // Merge all lists in an array so that we can iterate over each for a different batch
                 Collection<?>[] allLists = new Collection<?>[extraEntries.length + 1];
                 allLists[0] = entryList;
@@ -114,13 +119,13 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
                                 .toLowerCase(Locale.getDefault());
                         int version = connection.getMetaData().getDatabaseMajorVersion();
                         boolean useOracleInsert = databaseName.contains(ORACLE_DB_NAME) && version < 23;
-                        queryData = generateRewrittenBatchInserts(EntriesWithSequence.builder()
+                        batchesData = generateRewrittenBatchInserts(EntriesWithSequence.builder()
                                         .entries(collection).build(), batchSize, rewrittenBatchInsertSize,
                                 useOracleInsert);
                     } else {
-                        queryData = QueryBuilderUtils.generateBatchInserts(collection, batchSize);
+                        batchesData = QueryBuilderUtils.generateBatchInserts(collection, batchSize);
                     }
-                    performBatchUpdate(connection, queryData, batchSize);
+                    performBatchUpdate(connection, batchesData);
                 }
             });
         }
@@ -131,7 +136,7 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public void insertAllInBatchWithSequence(Collection<EntriesWithSequence> entryList) {
+    public void insertAllInBatchWithSequence(@NotNull Collection<EntriesWithSequence> entryList) {
         insertAllInBatchOfSizeWithSequence(defaultBatchSize, entryList);
     }
 
@@ -140,15 +145,15 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public void insertAllInBatchOfSizeWithSequence(int batchSize, Collection<EntriesWithSequence> entryList) {
-        if (entryList == null || entryList.isEmpty())
+    public void insertAllInBatchOfSizeWithSequence(int batchSize, @NotNull Collection<EntriesWithSequence> entryList) {
+        if (entryList.isEmpty())
             return;
 
         List<EntriesWithSequence> collections = entryList.stream().toList();
         try (EntityManager entityManger = resolveEntityManagerFromLists(collections.get(0).getEntries())) {
             Session session = entityManger.unwrap(Session.class);
             session.doWork(connection -> {
-                List<QueryData> queryData;
+                List<BatchData> batchesData;
                 // Merge all lists in an array so that we can iterate over each for a different batch
                 for (EntriesWithSequence collection : collections) {
                     if (shouldRewriteBatchInserts) {
@@ -156,12 +161,12 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
                                 .toLowerCase(Locale.getDefault());
                         int version = connection.getMetaData().getDatabaseMajorVersion();
                         boolean useOracleInsert = databaseName.contains(ORACLE_DB_NAME) && version < 23;
-                        queryData = generateRewrittenBatchInserts(collection, batchSize, rewrittenBatchInsertSize,
+                        batchesData = generateRewrittenBatchInserts(collection, batchSize, rewrittenBatchInsertSize,
                                 useOracleInsert);
                     } else {
-                        queryData = generateBatchInsertsWithSequence(collection, batchSize);
+                        batchesData = generateBatchInsertsWithSequence(collection, batchSize);
                     }
-                    performBatchUpdate(connection, queryData, batchSize);
+                    performBatchUpdate(connection, batchesData);
                 }
             });
         }
@@ -172,9 +177,10 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public void oracleInsertAll(Collection<?>... entriesToInsert) {
+    @Transactional
+    public void oracleInsertAll(@NotNull Collection<?>... entriesToInsert) {
         EntityManager entityManager = resolveEntityManagerFromLists(entriesToInsert[0]);
-        QueryData oracleInsert = generateOracleInsertAllSQL(entriesToInsert);
+        QueryData oracleInsert = generateOracleInsertAllStatement(entriesToInsert);
         executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
     }
 
@@ -183,8 +189,9 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public void oracleInsertAllWithSequenceId(Collection<EntriesWithSequence> entryList) {
-        if (entryList == null || entryList.isEmpty())
+    @Transactional
+    public void oracleInsertAllWithSequenceId(@NotNull Collection<EntriesWithSequence> entryList) {
+        if (entryList.isEmpty())
             return;
 
         if (entryList.size() == 1) {
@@ -199,7 +206,7 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void updateAllInBatch(Collection<S> entryList, Collection<?>... extraEntries) {
+    public <S> void updateAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntries) {
         updateAllInBatchOfSize(defaultBatchSize, entryList, extraEntries);
     }
 
@@ -208,8 +215,27 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void updateAllInBatchOfSize(int batchSize, Collection<S> entryList, Collection<?>... extraEntries) {
-        // TODO
+    public <S> void updateAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
+                                                     Collection<?>... extraEntries) {
+        if (entryList.isEmpty())
+            return;
+
+        try (EntityManager entityManger = resolveEntityManagerFromLists(entryList)) {
+            Session session = entityManger.unwrap(Session.class);
+            session.doWork(connection -> {
+                List<BatchData> queryData;
+
+                // Merge all lists in an array so that we can iterate over each for a different batch
+                Collection<?>[] allLists = new Collection<?>[extraEntries.length + 1];
+                allLists[0] = entryList;
+                System.arraycopy(extraEntries, 0, allLists, 1, extraEntries.length);
+
+                for (Collection<?> collection : allLists) {
+                    queryData = QueryBuilderUtils.generateBatchUpdates(collection, batchSize);
+                    performBatchUpdate(connection, queryData);
+                }
+            });
+        }
     }
 
     /**
@@ -217,16 +243,7 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public void deleteByIdIn(Collection<I>... idList) {
-        // TODO
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Modifying
-    @Override
-    public <S extends T> void deleteAllInBatch(Collection<S> entryList, Collection<?>... extraEntities) {
+    public <S> void deleteAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntities) {
         deleteAllInBatchOfSize(defaultBatchSize, entryList, extraEntities);
     }
 
@@ -235,8 +252,26 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      */
     @Modifying
     @Override
-    public <S extends T> void deleteAllInBatchOfSize(int batchSize, Collection<S> entryList, Collection<?>... extraEntities) {
-        // TODO
+    public <S> void deleteAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
+                                                     Collection<?>... extraEntities) {
+        if (entryList.isEmpty())
+            return;
+
+        try (EntityManager entityManger = resolveEntityManagerFromLists(entryList)) {
+            Session session = entityManger.unwrap(Session.class);
+            session.doWork(connection -> {
+                List<BatchData> queryData;
+                // Merge all lists in an array so that we can iterate over each for a different batch
+                Collection<?>[] allLists = new Collection<?>[extraEntities.length + 1];
+                allLists[0] = entryList;
+                System.arraycopy(extraEntities, 0, allLists, 1, extraEntities.length);
+
+                for (Collection<?> collection : allLists) {
+                    queryData = QueryBuilderUtils.generateBatchDeletes(collection, batchSize);
+                    performBatchUpdate(connection, queryData);
+                }
+            });
+        }
     }
 
     /**
@@ -310,7 +345,7 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      * @param insertSize The size of the inserts.
      * @return The list of SQL to insert all entries of a collection in a database.
      */
-    private static List<QueryData> generateRewrittenBatchInserts(EntriesWithSequence collection,
+    private static List<BatchData> generateRewrittenBatchInserts(EntriesWithSequence collection,
                                                                  int batchSize,
                                                                  int insertSize,
                                                                  boolean useOracleInsertAll) {
@@ -325,23 +360,29 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
         boolean hasSequence = hasSequenceName && hasSequenceField;
 
         int batchesSize = (int) Math.ceil((double) collectionEntries.size() / batchSize);
-        List<QueryData> queries = new ArrayList<>(batchesSize);
+        List<BatchData> queries = new ArrayList<>(batchesSize);
 
         for (int i = 0; i < batchesSize; i++) {
+            BatchData batchData = new BatchData();
             int batchStart = i * batchesSize;
             int batchEnd = Math.min((i + 1) * batchesSize, collectionEntries.size());
             List<?> batchEntries = collectionEntries.subList(batchStart, batchEnd);
+            batchData.setQueriesBindings(new ArrayList<>(batchEntries.size()));
 
             List<QueryData> batchQueries = createRewrittenBatchInserts(collection, batchEntries, insertSize,
                     useOracleInsertAll, hasSequence);
 
-            // Remove all position placeholders from the queries
-            clearPositionPlaceholders(batchQueries);
-
             // Add all batch queries into one
-            queries.addAll(batchQueries);
-
+            batchData.getQueriesBindings().addAll(batchQueries.stream().map(QueryData::getPositionBindings).toList());
+            queries.add(batchData);
         }
+
+        if (!queries.isEmpty() && !queries.get(0).getQueriesBindings().isEmpty()) {
+            String sampleQuery = queries.get(0).getQuery();
+            String clearQuery = clearPositionPlaceholderIndexes(sampleQuery);
+            queries.forEach(query -> query.setQuery(clearQuery));
+        }
+
         return queries;
     }
 
@@ -361,11 +402,11 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
                             batchEntries.subList(start, end),
                             collection.getSequenceField(), collection.getSequenceName());
                 } else {
-                    insert = generateOracleInsertAllSQL(batchEntries.subList(start, end));
+                    insert = generateOracleInsertAllStatement(batchEntries.subList(start, end));
                 }
                 batchQueries.add(insert);
             } else {
-                Pair<String, Map<Integer, Object>> insert;
+                QueryData insert;
                 if (hasSequence) {
                     insert = generateMultiInsertWithSequenceId(
                             batchEntries.subList(start, end),
@@ -376,37 +417,11 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
                             batchEntries.subList(start, end));
                 }
                 batchQueries.add(QueryData.builder()
-                        .query(insert.getFirst())
-                        .positionBindings(insert.getSecond()).build());
+                        .query(insert.getQuery())
+                        .positionBindings(insert.getPositionBindings()).build());
             }
         }
         return batchQueries;
-    }
-
-    /**
-     * Removes the position placeholders from the queries.
-     * @param queries The queries to clear.
-     */
-    private static void clearPositionPlaceholders(List<QueryData> queries) {
-
-        Map<Integer, Object> bindings = new HashMap<>(queries.stream()
-                .map(item -> item.getPositionBindings().size()).reduce(Integer::sum)
-                .orElse(0));
-        for (QueryData query : queries) {
-            String querySQL = query.getQuery();
-            if (querySQL == null || querySQL.isBlank()) {
-                continue;
-            }
-
-            Map<Integer, Object> queryBindings = query.getPositionBindings();
-            if (queryBindings != null && !queryBindings.isEmpty()) {
-                for(Map.Entry<Integer, Object> entry : queryBindings.entrySet()) {
-                    bindings.put(bindings.size(), entry.getValue());
-                    querySQL = querySQL.replace("?" + entry.getKey(), "?");
-                }
-                query.setQuery(querySQL);
-            }
-        }
     }
 
     /**
@@ -492,24 +507,67 @@ public class JDBCBatchRepositoryImpl<T, I> implements JDBCBatchRepository<T, I> 
      * @param connection The connection to use.
      * @param queries The queries to execute.
      */
-    private void performBatchUpdate(Connection connection, List<QueryData> queries, int batchSize) {
+    private void performBatchUpdate(Connection connection, List<BatchData> queries) {
         String query = queries.get(0).getQuery();
         try (PreparedStatement statement = connection.prepareStatement(query)) {
-            int counter = 0;
-            for (QueryData queryData : queries) {
-                statement.clearParameters();
-                Map<Integer, Object> bindings = queryData.getPositionBindings();
-                setStatementValues(statement, bindings);
-                statement.addBatch();
-                if ((counter + 1) % batchSize == 0 || (counter + 1) == queries.size()) {
-                    statement.executeBatch();
-                    statement.clearBatch();
+            for (BatchData batchData : queries) {
+                for (int i = 0; i < batchData.getQueriesBindings().size(); i++) {
+                    statement.clearParameters();
+                    Map<Integer, Object> bindings = batchData.getQueriesBindings().get(i);
+                    setStatementValues(statement, bindings);
+                    statement.addBatch();
+                    if ((i + 1) == batchData.getQueriesBindings().size()) {
+                        statement.executeBatch();
+                        statement.clearBatch();
+                    }
                 }
-                counter++;
             }
         } catch (SQLException e) {
             throw new BatchOperationException(e);
         }
+    }
+
+    /**
+     * Generates a map of sequences for each entity.
+     * @param entityManager The entity manager.
+     * @param sequenceQuantityMap A map with the name of the sequence and the number of entities to generate.
+     * @return A map with the number sequences for each entity.
+     */
+    private static Map<String, List<Long>> getOracleSequencesForEntities(@NotNull EntityManager entityManager,
+                                                                        @NotNull @NotEmpty Map<String, Integer> sequenceQuantityMap) {
+        StringBuilder columns = new StringBuilder();
+        int maxSequenceNum = 0;
+        for (Map.Entry<String, Integer> entry : sequenceQuantityMap.entrySet()) {
+            if (!columns.isEmpty())
+                columns.append(", ");
+
+            columns.append("(CASE WHEN rownum <= ").append(entry.getValue()).append(" THEN ").append(entry.getKey())
+                    .append(".nextval ELSE null END) as SEQUENCE_").append(entry.getKey());
+
+            if (entry.getValue() > maxSequenceNum)
+                maxSequenceNum = entry.getValue();
+        }
+
+        String query = "SELECT " + columns + " FROM (SELECT level FROM dual CONNECT BY level <= " + maxSequenceNum +
+                ")";
+        Query sequenceQuery = entityManager.createNativeQuery(query);
+
+        List<Object[]> sequences = sequenceQuery.getResultList();
+        List<String> sequenceNames = sequenceQuantityMap.keySet().stream().toList();
+        Map<String, List<Long>> sequencesByEntity = new HashMap<>(sequenceQuantityMap.size());
+        for (Object[] sequence : sequences) {
+            for (int i = 0; i < sequence.length; i++) {
+                String sequenceName = sequenceNames.get(i);
+                List<Long> sequenceList = sequencesByEntity.getOrDefault(sequenceName,
+                        new ArrayList<>(sequenceQuantityMap.get(sequenceName)));
+                if (sequence[i] != null) {
+                    sequenceList.add(((Number) sequence[i]).longValue());
+                }
+                sequencesByEntity.put(sequenceName, sequenceList);
+            }
+        }
+
+        return sequencesByEntity;
     }
 
     /**

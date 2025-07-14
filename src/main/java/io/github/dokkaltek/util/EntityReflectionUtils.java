@@ -2,9 +2,12 @@ package io.github.dokkaltek.util;
 
 import io.github.dokkaltek.exception.EntityReflectionException;
 import io.github.dokkaltek.helper.EntityField;
+import io.github.dokkaltek.helper.PrimaryKeyFields;
 import jakarta.persistence.Column;
+import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -13,12 +16,15 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -56,25 +62,28 @@ public class EntityReflectionUtils {
             entityClass = entityClass.getSuperclass();
             fields.addAll(Arrays.asList(entityClass.getDeclaredFields()));
         }
-        return fields;
+        return fields.stream().map(field -> {
+            field.setAccessible(true);
+            return field;
+        }).toList();
     }
 
     /**
      * Get the entity table name.
      *
-     * @param entity An instance of the entity to get the table of.
+     * @param entityClass An instance of the entity to get the table of.
      * @return The name of the table of the entity.
      */
-    public static String getEntityTable(Object entity) {
-        Table entityTable = entity.getClass().getAnnotation(Table.class);
+    public static <S> String getEntityTable(Class<S> entityClass) {
+        Table entityTable = entityClass.getAnnotation(Table.class);
         if (entityTable == null) {
-            throw new EntityReflectionException("Entity " + entity.getClass().getCanonicalName() +
+            throw new EntityReflectionException("Entity " + entityClass.getCanonicalName() +
                     " doesn't have a table annotation");
         }
 
         // If the table annotation doesn't have the value of the table name, use the class name
         if (entityTable.name().isEmpty()) {
-            return entity.getClass().getSimpleName();
+            return entityClass.getSimpleName();
         }
 
         return entityTable.name();
@@ -90,37 +99,19 @@ public class EntityReflectionUtils {
         List<EntityField> columnsList = new ArrayList<>(classFields.size());
         try {
             for (Field field : classFields) {
+                boolean skipColumnCheck = field.isAnnotationPresent(OneToMany.class) ||
+                        field.isAnnotationPresent(ManyToOne.class) || field.isAnnotationPresent(ManyToMany.class) ||
+                        checkInvalidModifiers(field);
+                if (skipColumnCheck)
+                    continue;
+
                 EntityField entityField = EntityField.builder()
                         .fieldName(field.getName())
                         .isId(field.isAnnotationPresent(Id.class))
                         .isGeneratedValue(field.isAnnotationPresent(GeneratedValue.class))
                         .value(field.get(entity))
                         .build();
-                String columnName = field.getName();
-                boolean skipColumnCheck = field.isAnnotationPresent(OneToMany.class) ||
-                        field.isAnnotationPresent(ManyToOne.class) || field.isAnnotationPresent(ManyToMany.class);
-
-                // If the column annotation is not present we save the name of the column and continue
-                if (!field.isAnnotationPresent(Column.class) && !skipColumnCheck) {
-                    if (!checkInvalidModifiers(field)) {
-                        columnName = escapeCaseCaps(columnName);
-                        entityField.setColumnName(columnName);
-
-                        columnsList.add(entityField);
-                    }
-                    skipColumnCheck = true;
-                }
-
-                if (skipColumnCheck)
-                    continue;
-
-                // In case it has the column annotation with the name, we use that instead
-                Column column = field.getAnnotation(Column.class);
-                if (column != null && !column.name().isEmpty()) {
-                    columnName = column.name();
-                } else {
-                    columnName = escapeCaseCaps(columnName);
-                }
+                String columnName = resolveFieldColumnName(field);
 
                 entityField.setColumnName(columnName);
                 columnsList.add(entityField);
@@ -128,6 +119,9 @@ public class EntityReflectionUtils {
         } catch (IllegalAccessException ex) {
             throw new EntityReflectionException(ex);
         }
+
+        // Make sure to add the embedded id columns
+        resolveEmbeddedIdColumns(entity, classFields, columnsList);
         return columnsList;
     }
 
@@ -165,8 +159,14 @@ public class EntityReflectionUtils {
      * @param fieldName The name of the field to get.
      * @return The {@link Field} representing the field from the object.
      */
-    private static Field getClassField(Class<?> objClass, String fieldName) {
+    public static Field getClassField(Class<?> objClass, String fieldName) {
         try {
+            while (fieldName.contains(".")) {
+                String[] split = fieldName.split("\\.");
+                Field field = getClassField(objClass, split[0]);
+                fieldName = String.join(".", Arrays.copyOfRange(split, 1, split.length));
+                objClass = field.getType();
+            }
             Field field = objClass.getDeclaredField(fieldName);
             field.setAccessible(Boolean.TRUE);
             return field;
@@ -197,6 +197,110 @@ public class EntityReflectionUtils {
     }
 
     /**
+     * Returns the list of primary key fields.
+     * @param entityClass The class to check.
+     * @return The list of primary key fields.
+     */
+    public static PrimaryKeyFields getPrimaryKeyFields(Class<?> entityClass) {
+        List<Field> fields = retrieveClassFields(entityClass);
+        List<Field> idFields = fields.stream().filter(f -> f.isAnnotationPresent(Id.class)).toList();
+        boolean isEmbeddedId = false;
+        Class<?> embeddedIdClass = null;
+        String embeddedIdFieldName = null;
+
+        if (idFields.isEmpty()) {
+            Optional<Field> optEmbeddedIdClass = fields.stream()
+                    .filter(f -> f.isAnnotationPresent(EmbeddedId.class)).findFirst();
+
+            if (optEmbeddedIdClass.isPresent()) {
+                Field embeddedIdField = optEmbeddedIdClass.get();
+                isEmbeddedId = true;
+                embeddedIdClass = embeddedIdField.getType();
+                embeddedIdFieldName = embeddedIdField.getName();
+                idFields = retrieveClassFields(embeddedIdClass).stream()
+                        .filter(field -> !checkInvalidModifiers(field)).toList();
+            }
+        }
+
+        return PrimaryKeyFields.builder()
+                .fields(idFields)
+                .isEmbeddedId(isEmbeddedId)
+                .embeddedIdClass(embeddedIdClass)
+                .embeddedIdFieldName(embeddedIdFieldName)
+                .build();
+    }
+
+    /**
+     * Returns the primary key of an entity.
+     * @param entity The entity to get the primary key of.
+     * @return The primary key of the entity.
+     * @param <S> The entity type.
+     * @param <I> The primary key type.
+     */
+    public static <S, I> I getPrimaryKey(S entity) {
+        List<Field> fields = retrieveClassFields(entity.getClass());
+        Field embeddedIdField = fields.stream()
+                .filter(f -> f.isAnnotationPresent(EmbeddedId.class)).findFirst().orElse(null);
+
+        // Check for embedded id first
+        if (embeddedIdField != null)
+            return getField(entity, embeddedIdField.getName());
+
+        // If there was no embedded id, check for single id
+        List<Field> idFields = fields.stream().filter(f -> f.isAnnotationPresent(Id.class)).toList();
+
+        if (idFields.size() == 1)
+            return getField(entity, idFields.get(0).getName());
+
+        // If there was no single id, check for composite id
+        IdClass idClass = entity.getClass().getAnnotation(IdClass.class);
+        if (idClass != null) {
+            Constructor<I> constructor;
+            try {
+                constructor = idClass.value().getConstructor(idFields.stream()
+                        .map(Field::getType).toArray(Class<?>[]::new));
+                return constructor.newInstance(idFields.stream()
+                        .map(field -> getField(entity, field.getName())).toArray(Object[]::new));
+            } catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException |
+                     InstantiationException e) {
+                throw new EntityReflectionException(e);
+            }
+        }
+
+        throw new EntityReflectionException("The primary key for entity " + entity.getClass().getCanonicalName() +
+                "couldn't be found.");
+    }
+
+    /**
+     * Resolves the column name of a field.
+     * @param field The field to resolve.
+     * @return The name of the column.
+     */
+    public static String resolveFieldColumnName(Field field) {
+        String columnName = field.getName();
+        boolean skipColumnCheck = field.isAnnotationPresent(OneToMany.class) ||
+                field.isAnnotationPresent(ManyToOne.class) || field.isAnnotationPresent(ManyToMany.class) ||
+                checkInvalidModifiers(field);
+
+        if (skipColumnCheck)
+            return columnName;
+
+        // If the column annotation is not present we save the name of the column and continue
+        if (!field.isAnnotationPresent(Column.class))
+            return escapeCaseCaps(columnName);
+
+        // In case it has the column annotation with the name, we use that instead
+        Column column = field.getAnnotation(Column.class);
+        if (column != null && !column.name().isEmpty()) {
+            columnName = column.name();
+        } else {
+            columnName = escapeCaseCaps(columnName);
+        }
+
+        return columnName;
+    }
+
+    /**
      * Escapes each capital letters with the specified separator table column names.
      * @param str The string to escape the caps of.
      * @return The converted string.
@@ -220,5 +324,39 @@ public class EntityReflectionUtils {
         return Modifier.isStatic(field.getModifiers()) ||
                 Modifier.isFinal(field.getModifiers()) ||
                 Modifier.isTransient(field.getModifiers());
+    }
+
+    /**
+     * Resolves the columns from any field that was an embedded id.
+     * @param entity The object to get the columns from.
+     * @param classFields The class fields to check.
+     */
+    private static void resolveEmbeddedIdColumns(Object entity, List<Field> classFields,
+                                                              List<EntityField> columns) {
+        for (Field field : classFields) {
+            if (field.isAnnotationPresent(EmbeddedId.class)) {
+                columns.removeIf(column -> column.getFieldName().equals(field.getName()));
+
+                Object embeddedId = getField(entity, field.getName());
+                List<EntityField> embeddedIdColumns;
+                if (embeddedId != null) {
+                    embeddedIdColumns = getEntityColumns(embeddedId);
+                    embeddedIdColumns.forEach(column -> column.setId(true));
+                } else {
+                    embeddedIdColumns = retrieveClassFields(field.getType())
+                            .stream().filter(embeddedIdFields -> !checkInvalidModifiers(embeddedIdFields))
+                            .map(embeddedIdField -> {
+                                EntityField column = new EntityField();
+                                column.setFieldName(embeddedIdField.getName());
+                                column.setColumnName(resolveFieldColumnName(embeddedIdField));
+                                column.setGeneratedValue(embeddedIdField.isAnnotationPresent(GeneratedValue.class));
+                                column.setId(true);
+                                return column;
+                            }).toList();
+                }
+
+                columns.addAll(embeddedIdColumns);
+            }
+        }
     }
 }

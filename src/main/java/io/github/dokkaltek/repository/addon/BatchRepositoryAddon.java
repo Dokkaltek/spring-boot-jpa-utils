@@ -2,6 +2,7 @@ package io.github.dokkaltek.repository.addon;
 
 import io.github.dokkaltek.helper.EntriesWithSequence;
 import jakarta.persistence.EntityManager;
+import jakarta.validation.constraints.NotNull;
 
 import java.util.Collection;
 
@@ -9,11 +10,8 @@ import java.util.Collection;
  * Repository addon to extend other repositories with {@link EntityManager} operations.
  * By default, this repository only takes into account MySQL, Oracle and Postgres, but their methods can be used for
  * other databases that use similar syntaxes.
- *
- * @param <T> The entity class.
- * @param <I> The id of the entity class.
  */
-public interface JDBCBatchRepository<T, I> {
+public interface BatchRepositoryAddon {
 
   /**
    * Inserts all registries in the database without checking if they exist for each element of each collection
@@ -27,7 +25,7 @@ public interface JDBCBatchRepository<T, I> {
    * @param entryList     The entries to save.
    * @param <S>           The main entity type.
    */
-  <S extends T> void insertAll(Collection<S> entryList);
+  <S> void insertAll(@NotNull Collection<S> entryList);
 
   /**
    * Inserts all registries in the database without checking if they exist for each element of each collection.
@@ -40,7 +38,7 @@ public interface JDBCBatchRepository<T, I> {
    * @param extraEntries  The extra collections of entries to save.
    * @param <S>           The main entity type.
    */
-  <S extends T> void insertAllInBatch(Collection<S> entryList, Collection<?>... extraEntries);
+  <S> void insertAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntries);
 
   /**
    * Inserts all registries in the database without checking if they exist for each element of each collection.
@@ -54,7 +52,8 @@ public interface JDBCBatchRepository<T, I> {
    * @param extraEntries  The extra collections of entries to save.
    * @param <S>           The main entity type.
    */
-  <S extends T> void insertAllInBatchOfSize(int batchSize, Collection<S> entryList, Collection<?>... extraEntries);
+  <S> void insertAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
+                                            Collection<?>... extraEntries);
 
   /**
    * Inserts all registries in the database without checking if they exist for each element of each collection. It will
@@ -68,7 +67,7 @@ public interface JDBCBatchRepository<T, I> {
    * @param entryList     The entries to save with the sequence.
    * @throws io.github.dokkaltek.exception.EntityReflectionException In case the sequence name can't be resolved.
    */
-  void insertAllInBatchWithSequence(Collection<EntriesWithSequence> entryList);
+  void insertAllInBatchWithSequence(@NotNull Collection<EntriesWithSequence> entryList);
 
   /**
    * Inserts all registries in the database without checking if they exist for each element of each collection. It will
@@ -83,7 +82,7 @@ public interface JDBCBatchRepository<T, I> {
    * @param entryList     The entries to save with the sequence.
    * @throws io.github.dokkaltek.exception.EntityReflectionException In case the sequence name can't be resolved.
    */
-  void insertAllInBatchOfSizeWithSequence(int batchSize, Collection<EntriesWithSequence> entryList);
+  void insertAllInBatchOfSizeWithSequence(int batchSize, @NotNull Collection<EntriesWithSequence> entryList);
 
   /**
    * Inserts all registries in the database without checking if they exist for each element of each collection.
@@ -93,7 +92,7 @@ public interface JDBCBatchRepository<T, I> {
    *
    * @param entriesToInsert Entries to insert.
    */
-  void oracleInsertAll(Collection<?>... entriesToInsert);
+  void oracleInsertAll(@NotNull Collection<?>... entriesToInsert);
 
   /**
    * Inserts all registries in the database calculating the id for each entry using the sequence from the
@@ -103,7 +102,7 @@ public interface JDBCBatchRepository<T, I> {
    *
    * @param entryList         The entries to save.
    */
-  void oracleInsertAllWithSequenceId(Collection<EntriesWithSequence> entryList);
+  void oracleInsertAllWithSequenceId(@NotNull Collection<EntriesWithSequence> entryList);
 
   /**
    * Updates all registries in the database without checking if they exist for each element of each collection.
@@ -111,7 +110,7 @@ public interface JDBCBatchRepository<T, I> {
    * @param extraEntries The extra collections of entries to update.
    * @param <S> The main entity type.
    */
-  <S extends T> void updateAllInBatch(Collection<S> entryList, Collection<?>... extraEntries);
+  <S> void updateAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntries);
 
   /**
    * Updates all registries in the database without checking if they exist for each element of each collection.
@@ -120,20 +119,15 @@ public interface JDBCBatchRepository<T, I> {
    * @param extraEntries The extra collections of entries to update.
    * @param <S> The main entity type.
    */
-  <S extends T> void updateAllInBatchOfSize(int batchSize, Collection<S> entryList, Collection<?>... extraEntries);
-
-  /**
-   * Deletes all entities in the database by id without checking if they exist.
-   * @param idList The list of ids of the entries to delete.
-   */
-  void deleteByIdIn(Collection<I>... idList);
+  <S> void updateAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
+                                            Collection<?>... extraEntries);
 
   /**
    * Deletes all entities in the database without checking if they exist in batch.
    * @param entryList The main list of entries to delete.
    * @param extraEntities The extra collections of entries to delete.
    */
-  <S extends T> void deleteAllInBatch(Collection<S> entryList, Collection<?>... extraEntities);
+  <S> void deleteAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntities);
 
   /**
    * Deletes all entities in the database without checking if they exist in batch.
@@ -141,5 +135,6 @@ public interface JDBCBatchRepository<T, I> {
    * @param entryList The main list of entries to delete.
    * @param extraEntities The extra collections of entries to delete.
    */
-  <S extends T> void deleteAllInBatchOfSize(int batchSize, Collection<S> entryList, Collection<?>... extraEntities);
+  <S> void deleteAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
+                                            Collection<?>... extraEntities);
 }
