@@ -71,7 +71,7 @@ class QueryBuilderUtilsTest {
         String query = QueryBuilderUtils.getEntityColumnsIntoValuesWithSequence(sampleEntity, bindings, "id",
                 "sample_seq").toString();
 
-        assertTrue(query.contains("nextval('sample_seq')"));
+        assertTrue(query.contains("sample_seq.nextval"));
         assertTrue(query.contains("name"));
         assertTrue(query.contains("desc"));
         assertTrue(query.contains("id"));
@@ -89,7 +89,7 @@ class QueryBuilderUtilsTest {
         String query = QueryBuilderUtils.getMultipleEntityColumnsIntoValues(List.of(sampleEntity, sampleEntity),
                 bindings).toString();
 
-        assertEquals(" (name, desc, id, entity2) VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)", query);
+        assertEquals(" (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)", query);
         assertEquals(8, bindings.size());
     }
 
@@ -103,8 +103,8 @@ class QueryBuilderUtilsTest {
         String query = getMultipleEntityColumnsIntoValuesWithSequence(List.of(sampleEntity, sampleEntity),
                 bindings, "embeddedId.id", null).toString();
 
-        assertTrue(query.contains("nextval('sample_seq')"));
-        assertTrue(query.contains("(name, desc, id, entity2) VALUES"));
+        assertTrue(query.contains("sample_seq.nextval"));
+        assertTrue(query.contains("(id, entity2, name, desc) VALUES"));
         assertEquals(6, bindings.size());
     }
 
@@ -115,7 +115,7 @@ class QueryBuilderUtilsTest {
     @DisplayName("Test building the entity columns with id first query part")
     void testGetEntityColumnsWithIdFirst() {
         String query = QueryBuilderUtils.getEntityColumnsWithIdFirst(sampleEntity, "id").toString();
-        assertEquals("id, name, desc, entity2", query);
+        assertEquals("id, entity2, name, desc", query);
     }
 
     /**
@@ -133,7 +133,7 @@ class QueryBuilderUtilsTest {
                 idsList, SampleEntity.class, "se");
         assertNotNull(resultPair);
         assertEquals(" WHERE (se.embeddedId.id = ?1 AND se.embeddedId.entity = ?2) OR " +
-                        "(se.embeddedId.id = ?3 AND se.embeddedId.entity = ?4)", resultPair.getQuery());
+                "(se.embeddedId.id = ?3 AND se.embeddedId.entity = ?4)", resultPair.getQuery());
         assertEquals(4, resultPair.getPositionBindings().size());
 
         // Try with single id
@@ -181,7 +181,7 @@ class QueryBuilderUtilsTest {
         // Test with embedded id class
         String query = QueryBuilderUtils.generateIntoStatement(sampleEntity, bindings).toString();
         assertNotNull(query);
-        assertEquals("INTO sample_entity (name, desc, id, entity2) VALUES (?1, ?2, ?3, ?4)", query);
+        assertEquals("INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)", query);
         assertEquals(4, bindings.size());
 
         bindings.clear();
@@ -200,7 +200,7 @@ class QueryBuilderUtilsTest {
     void testGenerateInsertStatement() {
         QueryData queryData = QueryBuilderUtils.generateInsertStatement(sampleEntity);
         assertNotNull(queryData);
-        assertEquals("INSERT INTO sample_entity (name, desc, id, entity2) VALUES (?1, ?2, ?3, ?4)", queryData.getQuery());
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)", queryData.getQuery());
         assertEquals(4, queryData.getPositionBindings().size());
     }
 
@@ -214,13 +214,13 @@ class QueryBuilderUtilsTest {
         // Test with embedded id class
         QueryData query = QueryBuilderUtils.generateUpdateStatement(sampleEntity);
         assertNotNull(query);
-        assertEquals("UPDATE sample_entity SET (name = ?1, desc = ?2) WHERE id = ?3 AND entity2 = ?4",
+        assertEquals("UPDATE sample_entity SET name = ?1, desc = ?2 WHERE id = ?3 AND entity2 = ?4",
                 query.getQuery());
         assertEquals(4, query.getPositionBindings().size());
 
         // Test with IdClass
         query = QueryBuilderUtils.generateUpdateStatement(sampleIdClassEntity);
-        assertEquals("UPDATE sample_entity SET (name = ?3, desc = ?4) WHERE id = ?1 AND entity2 = ?2",
+        assertEquals("UPDATE sample_entity SET name = ?1, desc = ?2 WHERE id = ?3 AND entity2 = ?4",
                 query.getQuery());
         assertEquals(4, query.getPositionBindings().size());
     }
@@ -236,12 +236,12 @@ class QueryBuilderUtilsTest {
         // Test with embedded id class
         QueryData query = QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate);
         assertNotNull(query);
-        assertEquals("UPDATE sample_entity SET (name = ?1) WHERE id = ?2 AND entity2 = ?3", query.getQuery());
+        assertEquals("UPDATE sample_entity SET name = ?1 WHERE id = ?2 AND entity2 = ?3", query.getQuery());
         assertEquals(3, query.getPositionBindings().size());
 
         // Test with IdClass
         query = QueryBuilderUtils.generateUpdateStatement(sampleIdClassEntity, fieldsToUpdate);
-        assertEquals("UPDATE sample_entity SET (name = ?3) WHERE id = ?1 AND entity2 = ?2", query.getQuery());
+        assertEquals("UPDATE sample_entity SET name = ?1 WHERE id = ?2 AND entity2 = ?3", query.getQuery());
         assertEquals(3, query.getPositionBindings().size());
     }
 
@@ -288,7 +288,7 @@ class QueryBuilderUtilsTest {
                 QueryBuilderUtils.generateMultiInsertStatement(List.of(sampleEntity, sampleEntity));
 
         assertNotNull(resultPair);
-        assertEquals("INSERT INTO sample_entity (name, desc, id, entity2) VALUES (?1, ?2, ?3, ?4), " +
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4), " +
                 "(?5, ?6, ?7, ?8)", resultPair.getQuery());
         assertEquals(8, resultPair.getPositionBindings().size());
 
@@ -314,9 +314,9 @@ class QueryBuilderUtilsTest {
                         "embeddedId.id", null);
 
         assertNotNull(resultPair);
-        assertEquals("INSERT INTO sample_entity (name, desc, id, entity2) VALUES " +
-                "(?1, ?2, nextval('sample_seq'), ?3), " +
-                "(?4, ?5, nextval('sample_seq'), ?6)", resultPair.getQuery());
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES " +
+                "(sample_seq.nextval, ?1, ?2, ?3), " +
+                "(sample_seq.nextval, ?4, ?5, ?6)", resultPair.getQuery());
         assertEquals(6, resultPair.getPositionBindings().size());
 
         // Test with idClass
@@ -325,8 +325,8 @@ class QueryBuilderUtilsTest {
 
         assertNotNull(resultPair);
         assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES " +
-                "(nextval('sample_seq'), ?1, ?2, ?3), " +
-                "(nextval('sample_seq'), ?4, ?5, ?6)", resultPair.getQuery());
+                "(sample_seq.nextval, ?1, ?2, ?3), " +
+                "(sample_seq.nextval, ?4, ?5, ?6)", resultPair.getQuery());
         assertEquals(6, resultPair.getPositionBindings().size());
     }
 
@@ -340,13 +340,12 @@ class QueryBuilderUtilsTest {
                 List.of(sampleIdClassEntity, sampleIdClassEntity));
 
         assertNotNull(queryData);
-        assertEquals("""
-                        INSERT ALL
-                        INTO sample_entity (name, desc, id, entity2) VALUES (?1, ?2, ?3, ?4)
-                        INTO sample_entity (name, desc, id, entity2) VALUES (?5, ?6, ?7, ?8)
-                        INTO sample_entity (id, entity2, name, desc) VALUES (?9, ?10, ?11, ?12)
-                        INTO sample_entity (id, entity2, name, desc) VALUES (?13, ?14, ?15, ?16)
-                        SELECT * FROM dual""",
+        assertEquals("INSERT ALL " +
+                        "INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4) " +
+                        "INTO sample_entity (id, entity2, name, desc) VALUES (?5, ?6, ?7, ?8) " +
+                        "INTO sample_entity (id, entity2, name, desc) VALUES (?9, ?10, ?11, ?12) " +
+                        "INTO sample_entity (id, entity2, name, desc) VALUES (?13, ?14, ?15, ?16) " +
+                        "SELECT * FROM dual",
                 queryData.getQuery());
         assertEquals(16, queryData.getPositionBindings().size());
 
@@ -363,9 +362,9 @@ class QueryBuilderUtilsTest {
                 List.of(sampleEntity, sampleEntity), "id", null);
 
         assertNotNull(queryData);
-        assertEquals("INSERT INTO sample_entity (id, name, desc, entity2) " +
-                        "SELECT sample_seq.nextval, mt.* FROM(SELECT (?1) as name, (?2) as desc, (?3) as entity2 " +
-                        "FROM DUAL UNION SELECT (?4) as name, (?5) as desc, (?6) as entity2 FROM DUAL) mt",
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) " +
+                        "SELECT sample_seq.nextval, mt.* FROM(SELECT (?1) as entity2, (?2) as name, (?3) as desc " +
+                        "FROM DUAL UNION SELECT (?4) as entity2, (?5) as name, (?6) as desc FROM DUAL) mt",
                 queryData.getQuery());
         assertEquals(6, queryData.getPositionBindings().size());
 
@@ -395,7 +394,7 @@ class QueryBuilderUtilsTest {
                 1);
         assertNotNull(batchData);
         assertEquals(2, batchData.size());
-        assertEquals("INSERT INTO sample_entity (name, desc, id, entity2) VALUES (?, ?, ?, ?)",
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)",
                 batchData.get(0).getQuery());
         assertEquals(1, batchData.get(0).getQueriesBindings().size());
         assertEquals(4, batchData.get(0).getQueriesBindings().get(0).size());
@@ -411,7 +410,7 @@ class QueryBuilderUtilsTest {
                 1);
         assertNotNull(batchData);
         assertEquals(2, batchData.size());
-        assertEquals("UPDATE sample_entity SET (name = ?, desc = ?) WHERE id = ? AND entity2 = ?",
+        assertEquals("UPDATE sample_entity SET name = ?1, desc = ?2 WHERE id = ?3 AND entity2 = ?4",
                 batchData.get(0).getQuery());
         assertEquals(1, batchData.get(0).getQueriesBindings().size());
         assertEquals(4, batchData.get(0).getQueriesBindings().get(0).size());
@@ -423,22 +422,23 @@ class QueryBuilderUtilsTest {
     @Test
     @DisplayName("Test generating batch deletes")
     void testGenerateBatchDeletes() {
+        List<SampleEmbeddedId> idsList = List.of(new SampleEmbeddedId(1L, "0012"),
+                new SampleEmbeddedId(2L, "0012"));
+
         // Test with embedded id
-        List<BatchData> batchData = QueryBuilderUtils.generateBatchDeletes(List.of(sampleEntity, sampleEntity),
-                1);
+        List<BatchData> batchData = QueryBuilderUtils.generateBatchDeletes(idsList, SampleEntity.class, 1);
         assertNotNull(batchData);
         assertEquals(2, batchData.size());
-        assertEquals("DELETE FROM sample_entity WHERE id = ? AND entity2 = ?",
+        assertEquals("DELETE FROM sample_entity ttd WHERE (ttd.id = ?1 AND ttd.entity2 = ?2)",
                 batchData.get(0).getQuery());
         assertEquals(1, batchData.get(0).getQueriesBindings().size());
         assertEquals(2, batchData.get(0).getQueriesBindings().get(0).size());
 
         // Test with idClass annotation
-        batchData = QueryBuilderUtils.generateBatchDeletes(List.of(sampleIdClassEntity, sampleIdClassEntity),
-                1);
+        batchData = QueryBuilderUtils.generateBatchDeletes(idsList, SampleIdClassEntity.class, 1);
         assertNotNull(batchData);
         assertEquals(2, batchData.size());
-        assertEquals("DELETE FROM sample_entity WHERE id = ? AND entity2 = ?",
+        assertEquals("DELETE FROM sample_entity ttd WHERE (ttd.id = ?1 AND ttd.entity2 = ?2)",
                 batchData.get(0).getQuery());
         assertEquals(1, batchData.get(0).getQueriesBindings().size());
         assertEquals(2, batchData.get(0).getQueriesBindings().get(0).size());
@@ -458,7 +458,8 @@ class QueryBuilderUtilsTest {
                 1);
         assertNotNull(batchData);
         assertEquals(2, batchData.size());
-        assertEquals("INSERT INTO sample_entity (name, desc, id, entity2) VALUES (?, ?, nextval('sample_seq'), ?)",
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES " +
+                        "(sample_seq.nextval, ?1, ?2, ?3)",
                 batchData.get(0).getQuery());
         assertEquals(1, batchData.get(0).getQueriesBindings().size());
         assertEquals(3, batchData.get(0).getQueriesBindings().get(0).size());

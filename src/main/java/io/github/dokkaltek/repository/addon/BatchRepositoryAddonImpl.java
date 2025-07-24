@@ -3,6 +3,7 @@ package io.github.dokkaltek.repository.addon;
 import io.github.dokkaltek.exception.BatchOperationException;
 import io.github.dokkaltek.helper.BatchData;
 import io.github.dokkaltek.helper.EntriesWithSequence;
+import io.github.dokkaltek.helper.PrimaryKeyEntries;
 import io.github.dokkaltek.helper.QueryData;
 import io.github.dokkaltek.util.QueryBuilderUtils;
 import jakarta.persistence.EntityManager;
@@ -100,7 +101,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
     @Modifying
     @Override
     public <S> void insertAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
-                                                     Collection<?>... extraEntries) {
+                                           Collection<?>... extraEntries) {
         if (entryList.isEmpty())
             return;
 
@@ -125,6 +126,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
                     } else {
                         batchesData = QueryBuilderUtils.generateBatchInserts(collection, batchSize);
                     }
+                    batchesData.get(0).setQuery(clearPositionPlaceholderIndexes(batchesData.get(0).getQuery()));
                     performBatchUpdate(connection, batchesData);
                 }
             });
@@ -166,6 +168,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
                     } else {
                         batchesData = generateBatchInsertsWithSequence(collection, batchSize);
                     }
+                    batchesData.get(0).setQuery(clearPositionPlaceholderIndexes(batchesData.get(0).getQuery()));
                     performBatchUpdate(connection, batchesData);
                 }
             });
@@ -179,6 +182,8 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
     @Override
     @Transactional
     public void oracleInsertAll(@NotNull Collection<?>... entriesToInsert) {
+        if (entriesToInsert.length == 0 || entriesToInsert[0].isEmpty())
+            return;
         EntityManager entityManager = resolveEntityManagerFromLists(entriesToInsert[0]);
         QueryData oracleInsert = generateOracleInsertAllStatement(entriesToInsert);
         executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
@@ -216,7 +221,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
     @Modifying
     @Override
     public <S> void updateAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
-                                                     Collection<?>... extraEntries) {
+                                           Collection<?>... extraEntries) {
         if (entryList.isEmpty())
             return;
 
@@ -232,6 +237,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
                 for (Collection<?> collection : allLists) {
                     queryData = QueryBuilderUtils.generateBatchUpdates(collection, batchSize);
+                    queryData.get(0).setQuery(clearPositionPlaceholderIndexes(queryData.get(0).getQuery()));
                     performBatchUpdate(connection, queryData);
                 }
             });
@@ -243,8 +249,9 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
      */
     @Modifying
     @Override
-    public <S> void deleteAllInBatch(@NotNull Collection<S> entryList, Collection<?>... extraEntities) {
-        deleteAllInBatchOfSize(defaultBatchSize, entryList, extraEntities);
+    public <S, I> void removeAllByIdInBatch(@NotNull PrimaryKeyEntries<S, I> entryList,
+                                            PrimaryKeyEntries<?, ?>... extraEntities) {
+        removeAllByIdInBatchOfSize(defaultBatchSize, entryList, extraEntities);
     }
 
     /**
@@ -252,22 +259,24 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
      */
     @Modifying
     @Override
-    public <S> void deleteAllInBatchOfSize(int batchSize, @NotNull Collection<S> entryList,
-                                                     Collection<?>... extraEntities) {
-        if (entryList.isEmpty())
+    public <S, I> void removeAllByIdInBatchOfSize(int batchSize, @NotNull PrimaryKeyEntries<S, I> entryList,
+                                                  PrimaryKeyEntries<?, ?>... extraEntities) {
+        if (entryList.getIds() == null || entryList.getIds().isEmpty())
             return;
 
-        try (EntityManager entityManger = resolveEntityManagerFromLists(entryList)) {
+        try (EntityManager entityManger = jpaContext.getEntityManagerByManagedType(entryList.getEntityClass())) {
             Session session = entityManger.unwrap(Session.class);
             session.doWork(connection -> {
                 List<BatchData> queryData;
                 // Merge all lists in an array so that we can iterate over each for a different batch
-                Collection<?>[] allLists = new Collection<?>[extraEntities.length + 1];
+                PrimaryKeyEntries<?, ?>[] allLists = new PrimaryKeyEntries[extraEntities.length + 1];
                 allLists[0] = entryList;
                 System.arraycopy(extraEntities, 0, allLists, 1, extraEntities.length);
 
-                for (Collection<?> collection : allLists) {
-                    queryData = QueryBuilderUtils.generateBatchDeletes(collection, batchSize);
+                for (PrimaryKeyEntries<?, ?> collection : allLists) {
+                    queryData = QueryBuilderUtils.generateBatchDeletes(collection.getIds(), collection.getEntityClass(),
+                            batchSize);
+                    queryData.get(0).setQuery(clearPositionPlaceholderIndexes(queryData.get(0).getQuery()));
                     performBatchUpdate(connection, queryData);
                 }
             });
@@ -276,6 +285,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Inserts all entries of a collection in an Oracle database.
+     *
      * @param entriesData The data of the entries to insert.
      */
     private void singleCollectionOracleInsertAllWithSequence(EntriesWithSequence entriesData) {
@@ -306,12 +316,13 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Inserts all entries of a series of collections in an Oracle database.
+     *
      * @param entriesData The data of the entries to insert.
      */
     private void multiCollectionOracleInsertAllWithSequence(Collection<EntriesWithSequence> entriesData) {
         Map<String, Integer> sequencesMap = new HashMap<>(entriesData.size());
-        EntityManager entityManager =  jpaContext.getEntityManagerByManagedType(entriesData.iterator().next()
-                        .getEntries().iterator().next().getClass());
+        EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entriesData.iterator().next()
+                .getEntries().iterator().next().getClass());
         for (EntriesWithSequence collection : entriesData) {
             if (collection.getSequenceName() == null || collection.getSequenceName().isBlank()) {
                 collection.setSequenceName(getEntitySequenceName(collection.getEntries().iterator().next().getClass(),
@@ -340,8 +351,9 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Generates the SQL to insert all entries of a collection in a database.
+     *
      * @param collection The collection of entries to insert.
-     * @param batchSize The size of the batch.
+     * @param batchSize  The size of the batch.
      * @param insertSize The size of the inserts.
      * @return The list of SQL to insert all entries of a collection in a database.
      */
@@ -359,13 +371,19 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
         boolean hasSequenceField = collection.getSequenceField() != null && !collection.getSequenceField().isBlank();
         boolean hasSequence = hasSequenceName && hasSequenceField;
 
+        if (hasSequenceField && !hasSequenceName) {
+            collection.setSequenceName(getEntitySequenceName(collection.getEntries().iterator().next().getClass(),
+                    collection.getSequenceField()));
+            hasSequence = true;
+        }
+
         int batchesSize = (int) Math.ceil((double) collectionEntries.size() / batchSize);
         List<BatchData> queries = new ArrayList<>(batchesSize);
 
         for (int i = 0; i < batchesSize; i++) {
             BatchData batchData = new BatchData();
-            int batchStart = i * batchesSize;
-            int batchEnd = Math.min((i + 1) * batchesSize, collectionEntries.size());
+            int batchStart = i * batchSize;
+            int batchEnd = Math.min((i + 1) * batchSize, collectionEntries.size());
             List<?> batchEntries = collectionEntries.subList(batchStart, batchEnd);
             batchData.setQueriesBindings(new ArrayList<>(batchEntries.size()));
 
@@ -374,13 +392,13 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
             // Add all batch queries into one
             batchData.getQueriesBindings().addAll(batchQueries.stream().map(QueryData::getPositionBindings).toList());
+            batchData.setQuery(batchQueries.get(0).getQuery());
             queries.add(batchData);
         }
 
         if (!queries.isEmpty() && !queries.get(0).getQueriesBindings().isEmpty()) {
             String sampleQuery = queries.get(0).getQuery();
-            String clearQuery = clearPositionPlaceholderIndexes(sampleQuery);
-            queries.forEach(query -> query.setQuery(clearQuery));
+            queries.forEach(query -> query.setQuery(sampleQuery));
         }
 
         return queries;
@@ -390,31 +408,29 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
                                                                List<?> batchEntries, int insertSize,
                                                                boolean useOracleInsertAll,
                                                                boolean hasSequence) {
-        int insertsPerBatch = (int) Math.ceil((double) batchEntries.size() / insertSize);
-        List<QueryData> batchQueries = new ArrayList<>(insertsPerBatch);
+        List<QueryData> batchQueries = new ArrayList<>(batchEntries.size());
         for (int j = 0; (j * insertSize) < batchEntries.size(); j++) {
-            int start = j * insertsPerBatch;
-            int end = Math.min((j + 1) * insertsPerBatch, collection.getEntries().size());
+            int start = j * insertSize;
+            int end = Math.min((j + 1) * insertSize, batchEntries.size());
+            List<?> entriesSubList = batchEntries.subList(start, end);
             if (useOracleInsertAll) {
                 QueryData insert;
                 if (hasSequence) {
                     insert = generateOracleInsertAllWithSequenceId(
-                            batchEntries.subList(start, end),
+                            entriesSubList,
                             collection.getSequenceField(), collection.getSequenceName());
                 } else {
-                    insert = generateOracleInsertAllStatement(batchEntries.subList(start, end));
+                    insert = generateOracleInsertAllStatement(entriesSubList);
                 }
                 batchQueries.add(insert);
             } else {
                 QueryData insert;
                 if (hasSequence) {
                     insert = generateMultiInsertWithSequenceId(
-                            batchEntries.subList(start, end),
-                            collection.getSequenceField(), collection.getSequenceName()
+                            entriesSubList, collection.getSequenceField(), collection.getSequenceName()
                     );
                 } else {
-                    insert = generateMultiInsertStatement(
-                            batchEntries.subList(start, end));
+                    insert = generateMultiInsertStatement(entriesSubList);
                 }
                 batchQueries.add(QueryData.builder()
                         .query(insert.getQuery())
@@ -444,14 +460,15 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Resolves the entity manager to use from a group of lists of entries.
-     * @param mainList The main list to search for.
+     *
+     * @param mainList   The main list to search for.
      * @param extraLists The extra lists to search for.
      * @return The found {@link EntityManager} or null.
      */
     private EntityManager resolveEntityManagerFromLists(Collection<?> mainList, Collection<?>... extraLists) {
         if (mainList != null && mainList.iterator().hasNext())
             return jpaContext.getEntityManagerByManagedType(mainList.iterator().next().getClass());
-        else if (extraLists != null){
+        else if (extraLists != null) {
             for (Iterable<?> extraList : extraLists) {
                 if (extraList != null && extraList.iterator().hasNext())
                     return jpaContext.getEntityManagerByManagedType(extraList.iterator().next().getClass());
@@ -462,6 +479,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Returns the database metadata.
+     *
      * @param entityManager The entity manager.
      * @return The database metadata.
      */
@@ -476,7 +494,8 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Updates the entries with the sequence map.
-     * @param collection The collection to update.
+     *
+     * @param collection           The collection to update.
      * @param sequencesForEntities The sequences map.
      * @return The updated collection.
      */
@@ -504,8 +523,9 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Performs a JDBC batch insert or update.
+     *
      * @param connection The connection to use.
-     * @param queries The queries to execute.
+     * @param queries    The queries to execute.
      */
     private void performBatchUpdate(Connection connection, List<BatchData> queries) {
         String query = queries.get(0).getQuery();
@@ -516,11 +536,9 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
                     Map<Integer, Object> bindings = batchData.getQueriesBindings().get(i);
                     setStatementValues(statement, bindings);
                     statement.addBatch();
-                    if ((i + 1) == batchData.getQueriesBindings().size()) {
-                        statement.executeBatch();
-                        statement.clearBatch();
-                    }
                 }
+                statement.executeBatch();
+                statement.clearBatch();
             }
         } catch (SQLException e) {
             throw new BatchOperationException(e);
@@ -529,12 +547,13 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Generates a map of sequences for each entity.
-     * @param entityManager The entity manager.
+     *
+     * @param entityManager       The entity manager.
      * @param sequenceQuantityMap A map with the name of the sequence and the number of entities to generate.
      * @return A map with the number sequences for each entity.
      */
     private static Map<String, List<Long>> getOracleSequencesForEntities(@NotNull EntityManager entityManager,
-                                                                        @NotNull @NotEmpty Map<String, Integer> sequenceQuantityMap) {
+                                                                         @NotNull @NotEmpty Map<String, Integer> sequenceQuantityMap) {
         StringBuilder columns = new StringBuilder();
         int maxSequenceNum = 0;
         for (Map.Entry<String, Integer> entry : sequenceQuantityMap.entrySet()) {
@@ -572,12 +591,13 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
 
     /**
      * Sets the values of a prepared statement from a map.
+     *
      * @param statement The statement to set the values.
-     * @param bindings The bindings to set.
+     * @param bindings  The bindings to set.
      * @throws SQLException If the statement could not be set.
      */
     private void setStatementValues(PreparedStatement statement, Map<Integer, Object> bindings) throws SQLException {
-        for(Map.Entry<Integer, Object> entry : bindings.entrySet()) {
+        for (Map.Entry<Integer, Object> entry : bindings.entrySet()) {
             Object paramValue = entry.getValue();
             if (paramValue == null) {
                 statement.setNull(entry.getKey(), Types.NULL);

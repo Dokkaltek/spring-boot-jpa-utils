@@ -26,6 +26,7 @@ public class EntityReflectionException extends RuntimeException {
 
     /**
      * Default {@link EntityReflectionException} constructor.
+     *
      * @param ex The underlying exception thrown.
      */
     public EntityReflectionException(Throwable ex) {
@@ -37,6 +38,7 @@ public class EntityReflectionException extends RuntimeException {
 
     /**
      * Default {@link EntityReflectionException} constructor.
+     *
      * @param message The message to show.
      */
     public EntityReflectionException(String message) {

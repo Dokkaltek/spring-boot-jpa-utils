@@ -26,6 +26,7 @@ public class BatchOperationException extends RuntimeException {
 
     /**
      * Default {@link BatchOperationException} constructor.
+     *
      * @param ex The underlying exception thrown.
      */
     public BatchOperationException(Throwable ex) {
@@ -37,6 +38,7 @@ public class BatchOperationException extends RuntimeException {
 
     /**
      * Default {@link BatchOperationException} constructor.
+     *
      * @param message The message to show.
      */
     public BatchOperationException(String message) {

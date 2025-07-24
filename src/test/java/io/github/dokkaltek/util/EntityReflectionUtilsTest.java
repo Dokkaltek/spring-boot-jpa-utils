@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -86,7 +87,7 @@ class EntityReflectionUtilsTest {
      * Test for {@link EntityReflectionUtils#getEntityColumns(Object)} method.
      */
     @Test
-    @DisplayName("Test getting the fields of a class")
+    @DisplayName("Test getting the fields of an entity")
     void testGetEntityColumns() {
         List<EntityField> fields = EntityReflectionUtils.getEntityColumns(new SampleEntity());
         assertEquals(4, fields.size());
@@ -99,13 +100,41 @@ class EntityReflectionUtilsTest {
     }
 
     /**
+     * Test for {@link EntityReflectionUtils#getEntityColumns(Object)} method.
+     */
+    @Test
+    @DisplayName("Test getting the fields of a list of entities")
+    void testGetEntityListColumns() {
+        List<List<EntityField>> fields = EntityReflectionUtils.getEntityListColumns(List.of(new SampleEntity(),
+                SampleEntity.builder()
+                        .name("SAMPLE_NAME")
+                        .build()));
+        assertEquals(2, fields.size());
+        assertEquals(4, fields.get(0).size());
+        assertEquals(4, fields.get(1).size());
+
+        List<String> fieldNames = fields.get(0).stream().map(EntityField::getFieldName).toList();
+        assertTrue(fieldNames.contains("entity"));
+        assertTrue(fieldNames.contains("name"));
+        assertTrue(fieldNames.contains("description"));
+        assertTrue(fieldNames.contains("id"));
+
+        Optional<EntityField> nameField = fields.get(1).stream()
+                .filter(entry -> entry.getFieldName().equals("name"))
+                .findFirst();
+        assertTrue(nameField.isPresent());
+        EntityField name = nameField.get();
+        assertEquals("SAMPLE_NAME", name.getValue());
+    }
+
+    /**
      * Test for {@link EntityReflectionUtils#getEntitySequenceName(Class, String)} method.
      */
     @Test
     @DisplayName("Test getting the sequence name of a field")
     void testGetEntitySequenceName() {
-       String sequence = EntityReflectionUtils.getEntitySequenceName(SampleEntity.class, "embeddedId.id");
-       assertEquals("sample_seq", sequence);
+        String sequence = EntityReflectionUtils.getEntitySequenceName(SampleEntity.class, "embeddedId.id");
+        assertEquals("sample_seq", sequence);
     }
 
     /**
@@ -146,7 +175,7 @@ class EntityReflectionUtilsTest {
         PrimaryKeyFields fields = EntityReflectionUtils.getPrimaryKeyFields(SampleEntity.class);
         assertEquals(2, fields.getFields().size());
         assertEquals("embeddedId", fields.getEmbeddedIdFieldName());
-        assertEquals(SampleEmbeddedId.class,fields.getEmbeddedIdClass());
+        assertEquals(SampleEmbeddedId.class, fields.getEmbeddedIdClass());
         assertTrue(fields.isEmbeddedId());
     }
 
@@ -175,6 +204,75 @@ class EntityReflectionUtilsTest {
 
         // Test with empty class
         assertDoesNotThrow(() -> EntityReflectionUtils.getPrimaryKey(new SampleEntity()));
+    }
+
+    /**
+     * Test for {@link EntityReflectionUtils#getIdFieldsFromEntity} method.
+     */
+    @Test
+    @DisplayName("Test getting the id fields of an entity")
+    void testGetIdFieldsFromEntity() {
+        // Test with @EmbeddedId annotation
+        SampleEntity sampleEntity = new SampleEntity();
+        SampleEmbeddedId embeddedId = new SampleEmbeddedId(1L, "0012");
+        sampleEntity.setEmbeddedId(embeddedId);
+        List<EntityField> idFields = EntityReflectionUtils.getIdFieldsFromEntity(sampleEntity);
+        assertEquals(2, idFields.size());
+        assertEquals(embeddedId.getId(), idFields.get(0).getValue());
+        assertEquals(embeddedId.getEntity(), idFields.get(1).getValue());
+
+        // Test with @IdClass annotation
+        SampleIdClassEntity sampleIdClassEntity = new SampleIdClassEntity();
+        sampleIdClassEntity.setId(embeddedId.getId());
+        sampleIdClassEntity.setEntity(embeddedId.getEntity());
+        idFields = EntityReflectionUtils.getIdFieldsFromEntity(sampleIdClassEntity);
+        assertEquals(2, idFields.size());
+        assertEquals(embeddedId.getId(), idFields.get(0).getValue());
+        assertEquals(embeddedId.getEntity(), idFields.get(1).getValue());
+
+        // Test with single id entity
+        SampleSingleIdEntity singleIdEntity = new SampleSingleIdEntity();
+        singleIdEntity.setId(embeddedId.getId());
+        idFields = EntityReflectionUtils.getIdFieldsFromEntity(singleIdEntity);
+        assertEquals(1, idFields.size());
+        assertEquals(embeddedId.getId(), idFields.get(0).getValue());
+
+        // Test with empty class
+        idFields = EntityReflectionUtils.getIdFieldsFromEntity(new SampleEntity());
+        assertEquals(2, idFields.size());
+        assertNull(idFields.get(0).getValue());
+        assertNull(idFields.get(1).getValue());
+    }
+
+    /**
+     * Test for {@link EntityReflectionUtils#getFieldsFromIdClass} method.
+     */
+    @Test
+    @DisplayName("Test getting the fields from an id class")
+    void testGetFieldsFromIdClass() {
+        // Test with @EmbeddedId annotation
+        SampleEmbeddedId embeddedId = new SampleEmbeddedId(1L, "0012");
+        List<EntityField> idFields = EntityReflectionUtils.getFieldsFromIdClass(embeddedId, SampleEntity.class);
+        assertEquals(2, idFields.size());
+        assertEquals(embeddedId.getId(), idFields.get(0).getValue());
+        assertEquals(embeddedId.getEntity(), idFields.get(1).getValue());
+
+        // Test with @IdClass annotation
+        idFields = EntityReflectionUtils.getFieldsFromIdClass(embeddedId, SampleIdClassEntity.class);
+        assertEquals(2, idFields.size());
+        assertEquals(embeddedId.getId(), idFields.get(0).getValue());
+        assertEquals(embeddedId.getEntity(), idFields.get(1).getValue());
+
+        // Test with single id entity
+        idFields = EntityReflectionUtils.getFieldsFromIdClass(embeddedId.getId(), SampleSingleIdEntity.class);
+        assertEquals(1, idFields.size());
+        assertEquals(embeddedId.getId(), idFields.get(0).getValue());
+
+        // Test with empty class
+        idFields = EntityReflectionUtils.getFieldsFromIdClass(null, SampleEntity.class);
+        assertEquals(2, idFields.size());
+        assertNull(idFields.get(0).getValue());
+        assertNull(idFields.get(1).getValue());
     }
 
     /**

@@ -1,5 +1,5 @@
 INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (1, 'Eduardo', NULL, 18, 1, '2022-01-01 00:00:00', '00:10:00');
 INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (2, 'Laura', NULL, 22, 1, '2023-01-01 18:31:20', '02:52:13');
-INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (3, 'Manolo', NULL, 34, -1, '2024-01-01 05:11:21', '09:00:11');
+INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (3, 'Manolo', NULL, 34, 0, '2024-01-01 05:11:21', '09:00:11');
 INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (4, 'Juan', 'SOME DESCRIPTION', 55, 1, '2025-01-01 11:05:13', '15:05:13');
-INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (5, 'Angel', NULL, NULL, 0, NULL, NULL);
+INSERT INTO `test_entities` (`id`, `name`, `description`, `age`, `active`, `created_at`, `last_usage_time`) VALUES (5, 'Angel', NULL, NULL, NULL, NULL, NULL);

@@ -6,8 +6,6 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
-import jakarta.persistence.criteria.Subquery;
-import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
@@ -20,7 +18,6 @@ import java.time.OffsetDateTime;
 import java.time.OffsetTime;
 import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -144,7 +141,7 @@ public class SpecificationUtils {
      * Generates a specification to compare if the passed date is greater the compared parameter
      *
      * @param numberToCompare The value of the parameter to search.
-     * @param parameterName The name of the parameter in the object.
+     * @param parameterName   The name of the parameter in the object.
      * @return The {@link Specification} object that belongs to the custom query.
      */
     public static <T> Specification<T> matchGreaterNumberThan(Number numberToCompare,
@@ -466,8 +463,8 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two dates (both inclusive).
      *
-     * @param startDate The initial Date.
-     * @param endDate   The end Date.
+     * @param startDate     The initial Date.
+     * @param endDate       The end Date.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
@@ -481,8 +478,8 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two dates (both inclusive).
      *
-     * @param startDate The initial Date.
-     * @param endDate   The end Date.
+     * @param startDate     The initial Date.
+     * @param endDate       The end Date.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
@@ -496,8 +493,8 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two dates (both inclusive).
      *
-     * @param startDate The initial Date.
-     * @param endDate   The end Date.
+     * @param startDate     The initial Date.
+     * @param endDate       The end Date.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
@@ -511,8 +508,8 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two dates (both inclusive).
      *
-     * @param startDate The initial Date.
-     * @param endDate   The end Date.
+     * @param startDate     The initial Date.
+     * @param endDate       The end Date.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
@@ -526,8 +523,8 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two dates (both inclusive).
      *
-     * @param startDate The initial Date.
-     * @param endDate   The end Date.
+     * @param startDate     The initial Date.
+     * @param endDate       The end Date.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
@@ -541,8 +538,8 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two dates (both inclusive).
      *
-     * @param startDate The initial Date.
-     * @param endDate   The end Date.
+     * @param startDate     The initial Date.
+     * @param endDate       The end Date.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
@@ -557,14 +554,14 @@ public class SpecificationUtils {
     /**
      * Generates a specification to match a column between two numbers (both inclusive).
      *
-     * @param lowestNumber The lowest number to compare.
-     * @param highestNumber   The highest number to compare.
+     * @param lowestNumber  The lowest number to compare.
+     * @param highestNumber The highest number to compare.
      * @param parameterName The name of the parameter in the object.
      * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
      */
     public static <T> Specification<T> matchNumberBetween(Number lowestNumber, Number highestNumber,
-                                                        String parameterName) {
+                                                          String parameterName) {
         return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) ->
                 matchNumberBetweenCriteria(splitRoot(root, parameterName), criteriaBuilder,
                         lowestNumber, highestNumber);
@@ -632,7 +629,7 @@ public class SpecificationUtils {
     }
 
     /**
-     * Generates a specification to match if the parameter matches the passed boolean value, or is null in case the
+     * Generates a specification to match if the parameter matches the passed boolean value, or the
      * value to match is null or false.
      *
      * @param parameterName The name of the parameter in the object.
@@ -771,76 +768,18 @@ public class SpecificationUtils {
     }
 
     /**
-     * Generates a specification to match list columns that are empty.
-     *
-     * @param parameterName The name of the parameter in the object.
-     * @param <T>           The class of the object to generate the spec for.
-     * @return The {@link Specification} object that belongs to the custom query.
-     */
-    public static <T> Specification<T> matchEmpty(String parameterName) {
-        return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) ->
-                criteriaBuilder.isEmpty(splitRoot(root, parameterName).as(List.class));
-    }
-
-    /**
-     * Generates a specification to match list columns that are not empty.
-     *
-     * @param parameterName The name of the parameter in the object.
-     * @param <T>           The class of the object to generate the spec for.
-     * @return The {@link Specification} object that belongs to the custom query.
-     */
-    public static <T> Specification<T> matchNotEmpty(String parameterName) {
-        return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) ->
-                criteriaBuilder.isNotEmpty(splitRoot(root, parameterName).as(List.class));
-    }
-
-    /**
      * Generates a specification to match value from a list to be one from the passed collection.
      * <br>
      * If the collection is empty, the criteria will be skipped.
      *
      * @param valuesToMatch The list of values to match.
      * @param parameterName The name of the parameter in the object.
+     * @param <T>           The class of the object to generate the spec for.
      * @return The {@link Specification} object that belongs to the custom query.
-     * @param <T> The class of the object to generate the spec for.
      */
     public static <T> Specification<T> matchValueIn(Collection<?> valuesToMatch, String parameterName) {
         return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) ->
                 matchValueInCriteria(splitRoot(root, parameterName), criteriaBuilder, valuesToMatch);
-    }
-
-    /**
-     * Generates a specification to check if the passed subquery result exists.
-     *
-     * @param spec The subquery to check for existence.
-     * @return The {@link Specification} object that belongs to the custom query.
-     * @param <T> The class of the object to generate the spec for.
-     */
-    public static <T, E> Specification<T> matchExists(@NotNull Specification<E> spec, @NotNull Class<E> subQueryClass) {
-        return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) -> {
-            assert query != null;
-            Subquery<E> subquery = query.subquery(subQueryClass);
-            Root<E> subqueryRoot = subquery.from(subQueryClass);
-            subquery.select(subqueryRoot).where(spec.toPredicate(subqueryRoot, query, criteriaBuilder));
-            return criteriaBuilder.exists(subquery);
-        };
-    }
-
-    /**
-     * Generates a specification to check if the passed subquery result exists.
-     *
-     * @param spec The subquery to check for existence.
-     * @return The {@link Specification} object that belongs to the custom query.
-     * @param <T> The class of the object to generate the spec for.
-     */
-    public static <T, E> Specification<T> matchNotExists(@NotNull Specification<E> spec, @NotNull Class<E> subQueryClass) {
-        return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) -> {
-            assert query != null;
-            Subquery<E> subquery = query.subquery(subQueryClass);
-            Root<E> subqueryRoot = subquery.from(subQueryClass);
-            subquery.select(subqueryRoot).where(spec.toPredicate(subqueryRoot, query, criteriaBuilder));
-            return criteriaBuilder.not(criteriaBuilder.exists(subquery));
-        };
     }
 
     /**
@@ -1377,10 +1316,11 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match dates between a range of two dates.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param startDate The initial date.
-     * @param endDate The end date.
+     * @param startDate       The initial date.
+     * @param endDate         The end date.
      * @return The Predicate generated.
      */
     private static Predicate matchDateBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder, Date startDate,
@@ -1394,16 +1334,18 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match dates between a range of two dates.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param startDate The initial date.
-     * @param endDate The end date.
+     * @param startDate       The initial date.
+     * @param endDate         The end date.
      * @return The Predicate generated.
      */
     private static Predicate matchDateBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
                                                       LocalDate startDate,
                                                       LocalDate endDate) {
         if (startDate != null && endDate != null) {
+            // Add one day to the end date to include the last day
             return criteriaBuilder.between(rootPath.as(LocalDate.class), startDate, endDate);
         } else {
             return criteriaBuilder.isTrue(criteriaBuilder.literal(Boolean.TRUE));
@@ -1412,10 +1354,11 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match dates between a range of two dates.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param startDate The initial date.
-     * @param endDate The end date.
+     * @param startDate       The initial date.
+     * @param endDate         The end date.
      * @return The Predicate generated.
      */
     private static Predicate matchDateBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
@@ -1430,10 +1373,11 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match dates between a range of two dates.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param startDate The initial date.
-     * @param endDate The end date.
+     * @param startDate       The initial date.
+     * @param endDate         The end date.
      * @return The Predicate generated.
      */
     private static Predicate matchDateBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
@@ -1448,10 +1392,11 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match dates between a range of two dates.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param startDate The initial date.
-     * @param endDate The end date.
+     * @param startDate       The initial date.
+     * @param endDate         The end date.
      * @return The Predicate generated.
      */
     private static Predicate matchDateBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
@@ -1466,10 +1411,11 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match dates between a range of two dates.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param startDate The initial date.
-     * @param endDate The end date.
+     * @param startDate       The initial date.
+     * @param endDate         The end date.
      * @return The Predicate generated.
      */
     private static Predicate matchDateBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
@@ -1484,14 +1430,15 @@ public class SpecificationUtils {
 
     /**
      * The criteria matcher to match a number between a range of two numbers.
-     * @param rootPath The column to match.
+     *
+     * @param rootPath        The column to match.
      * @param criteriaBuilder The criteria builder to generate the custom query.
-     * @param lowestNumber The lowest number to compare.
-     * @param highestNumber The highest number to compare.
+     * @param lowestNumber    The lowest number to compare.
+     * @param highestNumber   The highest number to compare.
      * @return The Predicate generated.
      */
     private static Predicate matchNumberBetweenCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
-                                                      Number lowestNumber,
+                                                        Number lowestNumber,
                                                         Number highestNumber) {
         if (lowestNumber != null && highestNumber != null) {
             if (lowestNumber instanceof Integer num) {
@@ -1597,7 +1544,7 @@ public class SpecificationUtils {
      * @return The Predicate generated.
      */
     private static Predicate matchStringNotLikeCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
-                                                     String paramToSearch) {
+                                                        String paramToSearch) {
         if (paramToSearch != null) {
             return criteriaBuilder.notLike(rootPath.as(String.class), paramToSearch);
         } else {
@@ -1632,7 +1579,7 @@ public class SpecificationUtils {
      * @return The Predicate generated.
      */
     private static Predicate matchStringCaseInsensitiveNotLikeCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
-                                                                    String paramToSearch) {
+                                                                       String paramToSearch) {
         if (paramToSearch != null) {
             return criteriaBuilder.notLike(criteriaBuilder.lower(rootPath.as(String.class)),
                     "%" + paramToSearch.toLowerCase(Locale.getDefault()) + "%");
@@ -1643,13 +1590,14 @@ public class SpecificationUtils {
 
     /**
      * Match a value in a collection.
-     * @param rootPath The {@link Expression} field of the object to search for.
-     * @param criteriaBuilder The criteria builder to generate the custom query.
+     *
+     * @param rootPath             The {@link Expression} field of the object to search for.
+     * @param criteriaBuilder      The criteria builder to generate the custom query.
      * @param collectionToSearchIn The list of values of the parameter to search for.
      * @return The Predicate generated.
      */
     private static Predicate matchValueInCriteria(Path<?> rootPath, CriteriaBuilder criteriaBuilder,
-                                                      Collection<?> collectionToSearchIn) {
+                                                  Collection<?> collectionToSearchIn) {
         if (collectionToSearchIn != null && !collectionToSearchIn.isEmpty()) {
             return rootPath.in(collectionToSearchIn);
         } else {
@@ -1664,8 +1612,8 @@ public class SpecificationUtils {
      * @param s    String to be divided.
      * @return The {@link Path} of the string.
      */
-    private static <T> Path<T> splitRoot(Root<T> root, String s) {
-        Path<T> solution;
+    private static <T, C> Path<C> splitRoot(Root<T> root, String s) {
+        Path<C> solution;
         if (s.contains(".")) {
             String[] split = DOT_PATTERN.split(s);
             solution = root.get(split[split.length - 1]);

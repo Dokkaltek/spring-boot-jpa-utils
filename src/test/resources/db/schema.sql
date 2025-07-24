@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS `test_entities` (
   `age` int DEFAULT NULL,
   `active` BOOLEAN DEFAULT 0,
   `created_at` date DEFAULT current_timestamp(),
+  `last_usage_time` time DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `test_entities_un` (`id`)
 );

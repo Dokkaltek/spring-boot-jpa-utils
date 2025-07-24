@@ -26,6 +26,7 @@ public class SamplePojo extends SamplePojoParent implements Serializable {
 
     /**
      * Sample static setter method.
+     *
      * @param emptyStaticValue The value to set the static field to.
      */
     public static void setEmptyStaticValue(String emptyStaticValue) {
@@ -34,6 +35,7 @@ public class SamplePojo extends SamplePojoParent implements Serializable {
 
     /**
      * Sample static getter method.
+     *
      * @return The value of the static field.
      */
     public static String getSampleStaticValue() {

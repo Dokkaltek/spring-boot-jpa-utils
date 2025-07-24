@@ -21,7 +21,8 @@ public class QueryData {
 
     /**
      * Constructor that accepts both a query and a map of bindings (Either Integer key or String key map)
-     * @param query The query.
+     *
+     * @param query    The query.
      * @param bindings The bindings.
      */
     public QueryData(String query, Map<?, Object> bindings) {
