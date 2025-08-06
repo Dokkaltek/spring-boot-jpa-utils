@@ -625,7 +625,7 @@ class SpecificationUtilsTest {
     @DisplayName("Test matching date lesser or equal than")
     void testMatchLesserOrEqualDateThanWithDate() {
         GregorianCalendar calendar = new GregorianCalendar();
-        calendar.set(2023, Calendar.JANUARY, 1);
+        calendar.set(2023, Calendar.JANUARY, 1, 18, 31, 20);
         Specification<TestEntity> spec = SpecificationUtils.matchLesserOrEqualDateThan(
                 calendar.getTime(), "createdAt");
         List<TestEntity> result = repository.findAll(spec);

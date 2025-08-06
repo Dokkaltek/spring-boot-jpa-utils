@@ -51,7 +51,7 @@ class QueryBuilderUtilsTest {
     @DisplayName("Test building the entity into values query part")
     void testGetEntityColumnsIntoValues() {
         Map<Integer, Object> bindings = new HashMap<>();
-        String query = QueryBuilderUtils.getEntityColumnsIntoValues(sampleEntity, bindings).toString();
+        String query = QueryBuilderUtils.getEntityColumnsIntoValues(sampleEntity, bindings, true).toString();
 
         assertTrue(query.contains("VALUES (?1, ?2, ?3, ?4)"));
         assertTrue(query.contains("name"));
@@ -85,12 +85,11 @@ class QueryBuilderUtilsTest {
     @Test
     @DisplayName("Test building the columns into multiple values query part")
     void testGetMultipleEntityColumnsIntoValues() {
-        Map<Integer, Object> bindings = new HashMap<>();
-        String query = QueryBuilderUtils.getMultipleEntityColumnsIntoValues(List.of(sampleEntity, sampleEntity),
-                bindings).toString();
+        QueryData query = QueryBuilderUtils.getMultipleEntityColumnsIntoValues(List.of(sampleEntity, sampleEntity),
+                true);
 
-        assertEquals(" (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)", query);
-        assertEquals(8, bindings.size());
+        assertEquals(" (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)", query.getQuery());
+        assertEquals(8, query.getPositionBindings().size());
     }
 
     /**
@@ -99,53 +98,65 @@ class QueryBuilderUtilsTest {
     @Test
     @DisplayName("Test building the columns into multiple values with sequence query part")
     void testGetMultipleEntityColumnsIntoValuesWithSequence() {
-        Map<Integer, Object> bindings = new HashMap<>();
-        String query = getMultipleEntityColumnsIntoValuesWithSequence(List.of(sampleEntity, sampleEntity),
-                bindings, "embeddedId.id", null).toString();
 
-        assertTrue(query.contains("sample_seq.nextval"));
-        assertTrue(query.contains("(id, entity2, name, desc) VALUES"));
-        assertEquals(6, bindings.size());
+        QueryData query = getMultipleEntityColumnsIntoValuesWithSequence(List.of(sampleEntity, sampleEntity),
+                 "embeddedId.id", null);
+
+        assertTrue(query.getQuery().contains("sample_seq.nextval"));
+        assertTrue(query.getQuery().contains("(id, entity2, name, desc) VALUES"));
+        assertEquals(6, query.getPositionBindings().size());
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#getEntityColumnsWithIdFirst} method.
+     * Tests {@link QueryBuilderUtils#getJoinedEntityColumns} method.
+     */
+    @Test
+    @DisplayName("Test building the entity columns query part")
+    void testGetJoinedEntityColumns() {
+        String query = QueryBuilderUtils.getJoinedEntityColumns(sampleEntity, true).toString();
+        assertEquals("id, entity2, name, desc", query);
+        query = QueryBuilderUtils.getJoinedEntityColumns(sampleEntity, false).toString();
+        assertEquals("id, entity, name, description", query);
+    }
+
+    /**
+     * Tests {@link QueryBuilderUtils#getJoinedEntityColumnsWithIdFirst} method.
      */
     @Test
     @DisplayName("Test building the entity columns with id first query part")
-    void testGetEntityColumnsWithIdFirst() {
-        String query = QueryBuilderUtils.getEntityColumnsWithIdFirst(sampleEntity, "id").toString();
+    void testGetJoinedEntityColumnsWithIdFirst() {
+        String query = QueryBuilderUtils.getJoinedEntityColumnsWithIdFirst(sampleEntity, "id").toString();
         assertEquals("id, entity2, name, desc", query);
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#getJPQLWhereClauseFilteringByPrimaryKeys} method.
+     * Tests {@link QueryBuilderUtils#getWhereClauseFilteringByPrimaryKeys} method.
      */
     @Test
     @DisplayName("Test generating a JPQL where clause filtering by primary keys")
-    void testGetJPQLWhereClauseFilteringByPrimaryKeys() {
+    void testGetWhereClauseFilteringByPrimaryKeys() {
         SampleEmbeddedId embeddedId = new SampleEmbeddedId(1L, "0012");
         SampleEmbeddedId embeddedId2 = new SampleEmbeddedId(2L, "0012");
         List<SampleEmbeddedId> idsList = List.of(embeddedId, embeddedId2);
 
         // Try with multiple ids
-        QueryData resultPair = QueryBuilderUtils.getJPQLWhereClauseFilteringByPrimaryKeys(
-                idsList, SampleEntity.class, "se");
+        QueryData resultPair = QueryBuilderUtils.getWhereClauseFilteringByPrimaryKeys(
+                idsList, SampleEntity.class, "se", false);
         assertNotNull(resultPair);
         assertEquals(" WHERE (se.embeddedId.id = ?1 AND se.embeddedId.entity = ?2) OR " +
                 "(se.embeddedId.id = ?3 AND se.embeddedId.entity = ?4)", resultPair.getQuery());
         assertEquals(4, resultPair.getPositionBindings().size());
 
         // Try with single id
-        resultPair = QueryBuilderUtils.getJPQLWhereClauseFilteringByPrimaryKeys(
-                List.of(embeddedId), SampleEntity.class, "se");
+        resultPair = QueryBuilderUtils.getWhereClauseFilteringByPrimaryKeys(
+                List.of(embeddedId), SampleEntity.class, "se", false);
         assertNotNull(resultPair);
         assertEquals(" WHERE (se.embeddedId.id = ?1 AND se.embeddedId.entity = ?2)", resultPair.getQuery());
         assertEquals(2, resultPair.getPositionBindings().size());
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#getNativeWhereClauseFilteringByPrimaryKeys} method.
+     * Tests {@link QueryBuilderUtils#getWhereClauseFilteringByPrimaryKeys} method.
      */
     @Test
     @DisplayName("Test generating a native where clause filtering by primary keys")
@@ -155,16 +166,16 @@ class QueryBuilderUtilsTest {
         List<SampleEmbeddedId> idsList = List.of(embeddedId, embeddedId2);
 
         // Try with multiple ids
-        QueryData resultPair = QueryBuilderUtils.getNativeWhereClauseFilteringByPrimaryKeys(
-                idsList, SampleEntity.class, "se");
+        QueryData resultPair = QueryBuilderUtils.getWhereClauseFilteringByPrimaryKeys(
+                idsList, SampleEntity.class, "se", true);
         assertNotNull(resultPair);
         assertEquals(" WHERE (se.id = ?1 AND se.entity2 = ?2) OR " +
                 "(se.id = ?3 AND se.entity2 = ?4)", resultPair.getQuery());
         assertEquals(4, resultPair.getPositionBindings().size());
 
         // Try with single id
-        resultPair = QueryBuilderUtils.getNativeWhereClauseFilteringByPrimaryKeys(
-                List.of(embeddedId), SampleEntity.class, "se");
+        resultPair = QueryBuilderUtils.getWhereClauseFilteringByPrimaryKeys(
+                List.of(embeddedId), SampleEntity.class, "se", true);
         assertNotNull(resultPair);
         assertEquals(" WHERE (se.id = ?1 AND se.entity2 = ?2)", resultPair.getQuery());
         assertEquals(2, resultPair.getPositionBindings().size());
@@ -179,7 +190,7 @@ class QueryBuilderUtilsTest {
         Map<Integer, Object> bindings = new HashMap<>();
 
         // Test with embedded id class
-        String query = QueryBuilderUtils.generateIntoStatement(sampleEntity, bindings).toString();
+        String query = QueryBuilderUtils.generateIntoStatement(sampleEntity, bindings, true).toString();
         assertNotNull(query);
         assertEquals("INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)", query);
         assertEquals(4, bindings.size());
@@ -187,46 +198,47 @@ class QueryBuilderUtilsTest {
         bindings.clear();
 
         // Test with IdClass
-        query = QueryBuilderUtils.generateIntoStatement(sampleIdClassEntity, bindings).toString();
-        assertEquals("INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)", query);
+        query = QueryBuilderUtils.generateIntoStatement(sampleIdClassEntity, bindings, false).toString();
+        assertEquals("INTO SampleIdClassEntity (id, entity, name, description) VALUES (?1, ?2, ?3, ?4)", query);
         assertEquals(4, bindings.size());
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#generateInsertStatement(Object)} method.
+     * Tests {@link QueryBuilderUtils#generateInsertStatement(Object, boolean)} method.
      */
     @Test
     @DisplayName("Test generating an insert statement")
     void testGenerateInsertStatement() {
-        QueryData queryData = QueryBuilderUtils.generateInsertStatement(sampleEntity);
+        QueryData queryData = QueryBuilderUtils.generateInsertStatement(sampleEntity, true);
         assertNotNull(queryData);
-        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)", queryData.getQuery());
+        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4)",
+                queryData.getQuery());
         assertEquals(4, queryData.getPositionBindings().size());
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#generateUpdateStatement(Object)} method.
+     * Tests {@link QueryBuilderUtils#generateUpdateStatement(Object, boolean)} method.
      */
     @Test
     @DisplayName("Test generating an update statement")
     void testGenerateUpdateStatement() {
 
         // Test with embedded id class
-        QueryData query = QueryBuilderUtils.generateUpdateStatement(sampleEntity);
+        QueryData query = QueryBuilderUtils.generateUpdateStatement(sampleEntity, true);
         assertNotNull(query);
         assertEquals("UPDATE sample_entity SET name = ?1, desc = ?2 WHERE id = ?3 AND entity2 = ?4",
                 query.getQuery());
         assertEquals(4, query.getPositionBindings().size());
 
         // Test with IdClass
-        query = QueryBuilderUtils.generateUpdateStatement(sampleIdClassEntity);
-        assertEquals("UPDATE sample_entity SET name = ?1, desc = ?2 WHERE id = ?3 AND entity2 = ?4",
+        query = QueryBuilderUtils.generateUpdateStatement(sampleIdClassEntity, false);
+        assertEquals("UPDATE SampleIdClassEntity SET name = ?1, description = ?2 WHERE id = ?3 AND entity = ?4",
                 query.getQuery());
         assertEquals(4, query.getPositionBindings().size());
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#generateUpdateStatement(Object, Set)} method.
+     * Tests {@link QueryBuilderUtils#generateUpdateStatement(Object, Set, boolean)} method.
      */
     @Test
     @DisplayName("Test generating a partial update statement")
@@ -234,19 +246,19 @@ class QueryBuilderUtilsTest {
         Set<String> fieldsToUpdate = Set.of("name");
 
         // Test with embedded id class
-        QueryData query = QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate);
+        QueryData query = QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate, true);
         assertNotNull(query);
         assertEquals("UPDATE sample_entity SET name = ?1 WHERE id = ?2 AND entity2 = ?3", query.getQuery());
         assertEquals(3, query.getPositionBindings().size());
 
         // Test with IdClass
-        query = QueryBuilderUtils.generateUpdateStatement(sampleIdClassEntity, fieldsToUpdate);
-        assertEquals("UPDATE sample_entity SET name = ?1 WHERE id = ?2 AND entity2 = ?3", query.getQuery());
+        query = QueryBuilderUtils.generateUpdateStatement(sampleIdClassEntity, fieldsToUpdate, false);
+        assertEquals("UPDATE SampleIdClassEntity SET name = ?1 WHERE id = ?2 AND entity = ?3", query.getQuery());
         assertEquals(3, query.getPositionBindings().size());
     }
 
     /**
-     * Tests {@link QueryBuilderUtils#generateUpdateStatement(Object, Set)} method with errors.
+     * Tests {@link QueryBuilderUtils#generateUpdateStatement(Object, Set, boolean)} method with errors.
      */
     @Test
     @DisplayName("Test generating a partial update statement with invalid fields to update")
@@ -255,12 +267,12 @@ class QueryBuilderUtilsTest {
 
         // Test with empty fields
         assertThrows(IllegalArgumentException.class, () ->
-                QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate));
+                QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate, true));
 
         // Test with only id fields
         final Set<String> fieldsToUpdate2 = Set.of("id", "entity2");
         assertThrows(IllegalArgumentException.class, () ->
-                QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate2));
+                QueryBuilderUtils.generateUpdateStatement(sampleEntity, fieldsToUpdate2, false));
     }
 
     /**
@@ -271,7 +283,7 @@ class QueryBuilderUtilsTest {
     void testGenerateDeleteStatement() {
         QueryData queryData = QueryBuilderUtils.generateDeleteStatement(
                 new SampleEmbeddedId(sampleEntity.getEmbeddedId().getId(), sampleEntity.getEmbeddedId().getEntity()),
-                SampleEntity.class);
+                SampleEntity.class, true);
         assertNotNull(queryData);
         assertEquals("DELETE FROM sample_entity WHERE (id = ?1 AND entity2 = ?2)", queryData.getQuery());
         assertEquals(2, queryData.getPositionBindings().size());
@@ -285,7 +297,7 @@ class QueryBuilderUtilsTest {
     void testGenerateMultiInsertStatement() {
         // Test with embedded id class
         QueryData resultPair =
-                QueryBuilderUtils.generateMultiInsertStatement(List.of(sampleEntity, sampleEntity));
+                QueryBuilderUtils.generateMultiInsertStatement(List.of(sampleEntity, sampleEntity), true);
 
         assertNotNull(resultPair);
         assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4), " +
@@ -293,10 +305,12 @@ class QueryBuilderUtilsTest {
         assertEquals(8, resultPair.getPositionBindings().size());
 
         // Test with idClass
-        resultPair = QueryBuilderUtils.generateMultiInsertStatement(List.of(sampleIdClassEntity, sampleIdClassEntity));
+        resultPair = QueryBuilderUtils.generateMultiInsertStatement(List.of(sampleIdClassEntity, sampleIdClassEntity),
+                false);
 
         assertNotNull(resultPair);
-        assertEquals("INSERT INTO sample_entity (id, entity2, name, desc) VALUES (?1, ?2, ?3, ?4), " +
+        assertEquals(
+                "INSERT INTO SampleIdClassEntity (id, entity, name, description) VALUES (?1, ?2, ?3, ?4), " +
                 "(?5, ?6, ?7, ?8)", resultPair.getQuery());
         assertEquals(8, resultPair.getPositionBindings().size());
 

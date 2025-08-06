@@ -80,7 +80,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
                 QueryData oracleInsert = generateOracleInsertAllStatement(entryList);
                 executeUpdateQuery(entityManager, oracleInsert.getQuery(), oracleInsert.getPositionBindings());
             } else {
-                QueryData insertQuery = generateMultiInsertStatement(entryList);
+                QueryData insertQuery = generateMultiInsertStatement(entryList, true);
                 executeUpdateQuery(entityManager, insertQuery.getQuery(), insertQuery.getPositionBindings());
             }
         }
@@ -430,7 +430,7 @@ public class BatchRepositoryAddonImpl implements BatchRepositoryAddon {
                             entriesSubList, collection.getSequenceField(), collection.getSequenceName()
                     );
                 } else {
-                    insert = generateMultiInsertStatement(entriesSubList);
+                    insert = generateMultiInsertStatement(entriesSubList, true);
                 }
                 batchQueries.add(QueryData.builder()
                         .query(insert.getQuery())

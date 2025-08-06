@@ -13,15 +13,13 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.StreamSupport;
 
 import static io.github.dokkaltek.util.QueryBuilderUtils.generateUpdateColumnsAndWhereClause;
-import static io.github.dokkaltek.util.QueryBuilderUtils.getJPQLWhereClauseFilteringByPrimaryKeys;
+import static io.github.dokkaltek.util.QueryBuilderUtils.getWhereClauseFilteringByPrimaryKeys;
 
 /**
  * Implementation of {@link SimpleRepositoryAddon}.
@@ -133,10 +131,10 @@ public class SimpleRepositoryAddonImpl implements SimpleRepositoryAddon {
     @Override
     @Modifying
     @Transactional
-    public <S, I> boolean deleteById(@NotNull I id, Class<S> entityClass) {
+    public <S, I> boolean removeById(@NotNull I id, Class<S> entityClass) {
         String tableAlias = "mt";
-        QueryData queryPair = getJPQLWhereClauseFilteringByPrimaryKeys(Collections.singletonList(id), entityClass,
-                tableAlias);
+        QueryData queryPair = getWhereClauseFilteringByPrimaryKeys(Collections.singletonList(id), entityClass,
+                tableAlias, false);
         EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entityClass);
         Query query = entityManager.createQuery("DELETE FROM " + entityClass.getSimpleName() + " " + tableAlias +
                 queryPair.getQuery());
@@ -151,13 +149,13 @@ public class SimpleRepositoryAddonImpl implements SimpleRepositoryAddon {
     @Override
     @Modifying
     @Transactional
-    public <S, I> int deleteAllById(@NotNull Iterable<I> ids, Class<S> entityClass) {
+    public <S, I> int removeAllById(@NotNull Iterable<I> ids, Class<S> entityClass) {
         if (!ids.iterator().hasNext())
             return 0;
 
         List<I> idList = StreamSupport.stream(ids.spliterator(), false).toList();
         String tableAlias = "mt";
-        QueryData queryPair = getJPQLWhereClauseFilteringByPrimaryKeys(idList, entityClass, tableAlias);
+        QueryData queryPair = getWhereClauseFilteringByPrimaryKeys(idList, entityClass, tableAlias, false);
         EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entityClass);
         Query query = entityManager.createQuery("DELETE FROM " + entityClass.getSimpleName() + " " + tableAlias +
                 queryPair.getQuery());
@@ -232,18 +230,12 @@ public class SimpleRepositoryAddonImpl implements SimpleRepositoryAddon {
     public <S> boolean update(S entity) {
         EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
 
-        List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity).stream()
-                .map(item -> {
-                    // Set the column name to the field name for the JPQL query
-                    item.setColumnName(item.getFieldName());
-                    return item;
-                }).toList();
-        Map<Integer, Object> bindings = new HashMap<>(columns.size());
-        StringBuilder columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, bindings);
-        String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause;
+        List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
+        QueryData columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, false);
+        String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause.getQuery();
 
         Query query = entityManager.createQuery(sqlQuery);
-        bindings.forEach(query::setParameter);
+        columnsAndWhereClause.getPositionBindings().forEach(query::setParameter);
         return query.executeUpdate() > 0;
     }
 
@@ -256,20 +248,15 @@ public class SimpleRepositoryAddonImpl implements SimpleRepositoryAddon {
         EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entity.getClass());
 
         List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity).stream()
-                .filter(item -> item.isId() || fieldsToUpdate.contains(item.getFieldName()))
-                .map(item -> {
-                    // Set the column name to the field name for the JPQL query
-                    item.setColumnName(item.getFieldName());
-                    return item;
-                }).toList();
+                .filter(item -> item.isId() || fieldsToUpdate.contains(item.getFieldName())).toList();
         if (columns.stream().allMatch(EntityField::isId))
             throw new IllegalArgumentException("The fields to update must contain at least one non-id field");
 
-        Map<Integer, Object> bindings = new HashMap<>(columns.size());
-        StringBuilder columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, bindings);
-        String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause;
+        QueryData columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, false);
+        String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause.getQuery();
+
         Query query = entityManager.createQuery(sqlQuery);
-        bindings.forEach(query::setParameter);
+        columnsAndWhereClause.getPositionBindings().forEach(query::setParameter);
         return query.executeUpdate() > 0;
     }
 
@@ -286,22 +273,16 @@ public class SimpleRepositoryAddonImpl implements SimpleRepositoryAddon {
         List<S> entityList = StreamSupport.stream(entryList.spliterator(), false).toList();
         List<List<EntityField>> listColumns = EntityReflectionUtils.getEntityListColumns(entityList);
 
-        listColumns.forEach(item -> item.forEach(field ->
-                // Set the column name to the field name for the JPQL query
-                field.setColumnName(field.getFieldName())
-        ));
-
         int counter = 0;
         EntityManager entityManager = jpaContext.getEntityManagerByManagedType(entityList.get(0).getClass());
         for (int i = 0; i < entityList.size(); i++) {
             S entity = entityList.get(i);
             List<EntityField> columns = listColumns.get(i);
-            Map<Integer, Object> bindings = new HashMap<>(columns.size());
-            StringBuilder columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, bindings);
-            String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause;
+            QueryData columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, false);
+            String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause.getQuery();
 
             Query query = entityManager.createQuery(sqlQuery);
-            bindings.forEach(query::setParameter);
+            columnsAndWhereClause.getPositionBindings().forEach(query::setParameter);
             counter += query.executeUpdate();
         }
 
@@ -334,12 +315,11 @@ public class SimpleRepositoryAddonImpl implements SimpleRepositoryAddon {
         for (int i = 0; i < entityList.size(); i++) {
             S entity = entityList.get(i);
             List<EntityField> columns = listColumns.get(i);
-            Map<Integer, Object> bindings = new HashMap<>(columns.size());
-            StringBuilder columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, bindings);
-            String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause;
+            QueryData columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, false);
+            String sqlQuery = UPDATE + entity.getClass().getSimpleName() + columnsAndWhereClause.getQuery();
 
             Query query = entityManager.createQuery(sqlQuery);
-            bindings.forEach(query::setParameter);
+            columnsAndWhereClause.getPositionBindings().forEach(query::setParameter);
             counter += query.executeUpdate();
         }
 

@@ -82,7 +82,7 @@ public interface SimpleRepositoryAddon {
      * @param entityClass The entity class.
      * @return If the entry was deleted.
      */
-    <S, I> boolean deleteById(@NotNull I id, Class<S> entityClass);
+    <S, I> boolean removeById(@NotNull I id, Class<S> entityClass);
 
     /**
      * Deletes all entities in the database by id without checking if they exist.
@@ -91,7 +91,7 @@ public interface SimpleRepositoryAddon {
      * @param entityClass The entity class.
      * @return The number of entries deleted.
      */
-    <S, I> int deleteAllById(@NotNull Iterable<I> ids, Class<S> entityClass);
+    <S, I> int removeAllById(@NotNull Iterable<I> ids, Class<S> entityClass);
 
     /**
      * Updates a registry in the database without checking if it exists. When the

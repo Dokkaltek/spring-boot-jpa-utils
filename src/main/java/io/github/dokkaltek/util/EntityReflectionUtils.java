@@ -218,7 +218,7 @@ public class EntityReflectionUtils {
     }
 
     /**
-     * Gets a {@link Field} from an object.
+     * Gets a {@link Field} from a class.
      *
      * @param objClass  The object to get the {@link Field} from.
      * @param fieldName The name of the field to get.

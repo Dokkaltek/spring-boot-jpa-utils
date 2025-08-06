@@ -1,11 +1,13 @@
 package io.github.dokkaltek.util;
 
+import io.github.dokkaltek.exception.BatchOperationException;
 import io.github.dokkaltek.exception.EntityReflectionException;
 import io.github.dokkaltek.helper.BatchData;
 import io.github.dokkaltek.helper.EntityField;
 import io.github.dokkaltek.helper.EntriesWithSequence;
 import io.github.dokkaltek.helper.PrimaryKeyFields;
 import io.github.dokkaltek.helper.QueryData;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -42,11 +44,13 @@ public class QueryBuilderUtils {
      *
      * @param entity   The entity to get the columns as a {@link StringBuilder} representation of.
      * @param bindings The parameter bindings.
+     * @param isNative Whether the query is native or not.
      * @param <S>      The entity type.
      * @return The generated query fragment.
      */
     public static <S> StringBuilder getEntityColumnsIntoValues(@NotNull S entity,
-                                                               @NotNull Map<Integer, Object> bindings) {
+                                                               @NotNull Map<Integer, Object> bindings,
+                                                               boolean isNative) {
         StringBuilder allColumns = new StringBuilder();
         StringBuilder columnValues = new StringBuilder();
 
@@ -58,7 +62,7 @@ public class QueryBuilderUtils {
                 columnValues.append(", ");
             }
 
-            allColumns.append(column.getColumnName());
+            allColumns.append(isNative ? column.getColumnName() : column.getFieldName());
 
             Object columnValue = column.getValue();
             bindings.put(bindings.size() + 1, columnValue);
@@ -110,21 +114,23 @@ public class QueryBuilderUtils {
      * bindings map.
      *
      * @param entries  The entries to generate the part of.
-     * @param bindings The map where the bindings will be stored.
+     * @param isNative Whether the query is native or not.
      * @param <S>      The entity type.
      * @return The generated query fragment.
      */
-    public static <S> StringBuilder getMultipleEntityColumnsIntoValues(@NotNull Collection<S> entries,
-                                                                       @NotNull Map<Integer, Object> bindings) {
+    public static <S> QueryData getMultipleEntityColumnsIntoValues(@NotNull @NotEmpty Collection<S> entries,
+                                                                   boolean isNative) {
         StringBuilder mainQuery = new StringBuilder();
+        S entity = entries.iterator().next();
+        Map<Integer, Object> bindings = new HashMap<>(entity.getClass().getDeclaredFields().length);
         for (Object entry : entries) {
             if (mainQuery.isEmpty()) {
-                mainQuery = getEntityColumnsIntoValues(entry, bindings);
+                mainQuery = getEntityColumnsIntoValues(entry, bindings, isNative);
             } else {
                 appendEntityColumnsIntoValues(entry, mainQuery, bindings);
             }
         }
-        return mainQuery;
+        return new QueryData(mainQuery.toString(), bindings);
     }
 
     /**
@@ -132,15 +138,19 @@ public class QueryBuilderUtils {
      * bindings map.
      *
      * @param entries  The entries to generate the part of.
-     * @param bindings The map where the bindings will be stored.
+     * @param idField  The id field of the entity.
+     * @param sequenceName The name of the sequence to use.
      * @param <S>      The entity type.
      * @return The generated query fragment.
+     * @throws BatchOperationException If the passed collection is empty.
      */
-    public static <S> StringBuilder getMultipleEntityColumnsIntoValuesWithSequence(@NotNull Collection<S> entries,
-                                                                                   @NotNull Map<Integer, Object> bindings,
+    public static <S> QueryData getMultipleEntityColumnsIntoValuesWithSequence(@NotNull @NotEmpty Collection<S> entries,
                                                                                    @NotNull String idField,
                                                                                    String sequenceName) {
         StringBuilder mainQuery = new StringBuilder();
+        S entity = entries.iterator().next();
+        Map<Integer, Object> bindings = new HashMap<>(entity.getClass().getDeclaredFields().length *
+                entries.size());
         for (Object entry : entries) {
             if (sequenceName == null) {
                 sequenceName = getEntitySequenceName(entry.getClass(), idField);
@@ -151,18 +161,37 @@ public class QueryBuilderUtils {
                 appendEntityColumnsIntoValuesWithSequence(entry, mainQuery, bindings, idField, sequenceName);
             }
         }
-        return mainQuery;
+        return new QueryData(mainQuery.toString(), bindings);
     }
 
+    /**
+     * Gets the entity columns joined by commas.
+     *
+     * @param entry   The entry to get the columns of.
+     * @param isNative Whether the query is native or not.
+     * @return A string with columns of the entity separated with commas.
+     */
+    public static StringBuilder getJoinedEntityColumns(@NotNull Object entry, boolean isNative) {
+        StringBuilder allColumns = new StringBuilder();
+
+        List<EntityField> columnsList = EntityReflectionUtils.getEntityColumns(entry);
+        for (EntityField field : columnsList) {
+            if (!allColumns.isEmpty())
+                allColumns.append(", ");
+            allColumns.append(isNative ? field.getColumnName() : field.getFieldName());
+        }
+
+        return allColumns;
+    }
 
     /**
-     * Gets the entity columns, placing the id column first.
+     * Gets the entity columns, placing the id column first. Aimed for native queries.
      *
      * @param entry   The entry to get the columns of.
      * @param idParam The param to place first on the string.
      * @return A string with columns of the entity separated with commas.
      */
-    public static StringBuilder getEntityColumnsWithIdFirst(@NotNull Object entry, @NotNull String idParam) {
+    public static StringBuilder getJoinedEntityColumnsWithIdFirst(@NotNull Object entry, @NotNull String idParam) {
         StringBuilder allColumns = new StringBuilder("{}");
         String idColumn = idParam;
 
@@ -192,17 +221,18 @@ public class QueryBuilderUtils {
      * @param tableAlias  The alias used for the table.
      * @return The generated where clause.
      */
-    public static <I, T> QueryData getJPQLWhereClauseFilteringByPrimaryKeys(
+    public static <I, T> QueryData getWhereClauseFilteringByPrimaryKeys(
             @NotNull List<I> idList,
             @NotNull Class<T> entityClass,
-            @NotNull String tableAlias) {
+            @NotNull String tableAlias,
+            boolean isNative) {
         PrimaryKeyFields idClassFields = EntityReflectionUtils.getPrimaryKeyFields(entityClass);
         boolean isEmbeddedId = idClassFields.isEmbeddedId();
 
         String fieldPrefix = tableAlias + ".";
 
         // If embedded primary key
-        if (isEmbeddedId) {
+        if (isEmbeddedId && !isNative) {
             fieldPrefix = fieldPrefix + idClassFields.getEmbeddedIdFieldName() + ".";
         }
 
@@ -213,38 +243,9 @@ public class QueryBuilderUtils {
         // If single primary key
         int idClassFieldsSize = idClassFields.getFields().size();
         if (!isEmbeddedId && idClassFieldsSize == 1) {
-            return generateSinglePrimaryKeyWhereClause(idFields);
+            return generateSinglePrimaryKeyWhereClause(idFields, isNative);
         } else {
-            return generateMultiPrimaryKeyWhereClause(idFields, idClassFieldsSize);
-        }
-    }
-
-    /**
-     * Generates the where clause filtering by primary keys in native format.
-     *
-     * @param idList      The ids to filter by.
-     * @param entityClass The class that the ids belong to.
-     * @param tableAlias  The alias used for the table.
-     * @return The generated where clause.
-     */
-    public static <I, T> QueryData getNativeWhereClauseFilteringByPrimaryKeys(
-            @NotNull List<I> idList,
-            @NotNull Class<T> entityClass,
-            @NotNull String tableAlias) {
-        PrimaryKeyFields idClassFields = EntityReflectionUtils.getPrimaryKeyFields(entityClass);
-        boolean isEmbeddedId = idClassFields.isEmbeddedId();
-
-        String fieldPrefix = tableAlias + ".";
-
-        // Get the list of entity fields per primary key
-        List<List<EntityField>> idFields = getIdFieldsOfIdList(idList, idClassFields.getFields(), fieldPrefix, isEmbeddedId);
-
-        // If single primary key
-        int idClassFieldsSize = idClassFields.getFields().size();
-        if (!isEmbeddedId && idClassFieldsSize == 1) {
-            return generateNativeSinglePrimaryKeyWhereClause(idFields);
-        } else {
-            return generateNativeMultiPrimaryKeyWhereClause(idFields, idClassFieldsSize);
+            return generateMultiPrimaryKeyWhereClause(idFields, idClassFieldsSize, isNative);
         }
     }
 
@@ -252,15 +253,21 @@ public class QueryBuilderUtils {
      * Generates the "SET" and "WHERE" clauses for the update query.
      *
      * @param fields   The entity fields.
-     * @param bindings The map where the bindings will be stored.
+     * @param isNative True if the query is native, false otherwise.
      * @return The columns and where clause.
      */
-    public static StringBuilder generateUpdateColumnsAndWhereClause(List<EntityField> fields,
-                                                                    Map<Integer, Object> bindings) {
+    public static QueryData generateUpdateColumnsAndWhereClause(List<EntityField> fields, boolean isNative) {
         StringBuilder columns = new StringBuilder();
         StringBuilder whereClause = new StringBuilder(WHERE_CLAUSE_START);
-        List<EntityField> orderedFields = fields.stream().sorted(Comparator.comparing(EntityField::isId))
-                .toList();
+        Map<Integer, Object> bindings = new HashMap<>(fields.size());
+        List<EntityField> orderedFields;
+        if (!isNative)
+            orderedFields = fields.stream().map(field -> {
+                field.setColumnName(field.getFieldName());
+                return field;
+            }).sorted(Comparator.comparing(EntityField::isId)).toList();
+        else
+            orderedFields = fields.stream().sorted(Comparator.comparing(EntityField::isId)).toList();
         for (EntityField column : orderedFields) {
             Object columnValue = column.getValue();
             if (column.isId()) {
@@ -277,7 +284,9 @@ public class QueryBuilderUtils {
             columns.append(column.getColumnName()).append(" = ?").append(bindings.size());
         }
 
-        return new StringBuilder(" SET ").append(columns).append(whereClause, 0, whereClause.length() - 5);
+        String query = new StringBuilder(" SET ").append(columns)
+                .append(whereClause, 0, whereClause.length() - 5).toString();
+        return new QueryData(query, bindings);
     }
 
     /**
@@ -285,84 +294,92 @@ public class QueryBuilderUtils {
      *
      * @param entity   The entity to generate the part of.
      * @param bindings The map where the bindings will be stored.
+     * @param isNative True if the query is native, false otherwise.
      * @return The "into" part of the insert all statement for an element.
      */
-    public static StringBuilder generateIntoStatement(@NotNull Object entity, @NotNull Map<Integer, Object> bindings) {
-        return new StringBuilder("INTO ").append(getEntityTable(entity.getClass()))
-                .append(getEntityColumnsIntoValues(entity, bindings));
+    public static StringBuilder generateIntoStatement(@NotNull Object entity, @NotNull Map<Integer, Object> bindings,
+                                                      boolean isNative) {
+        return new StringBuilder("INTO ")
+                .append(isNative ? getEntityTable(entity.getClass()) : entity.getClass().getSimpleName())
+                .append(getEntityColumnsIntoValues(entity, bindings, isNative));
     }
 
     /**
-     * Generate a native insert statement query.
+     * Generate a insert statement query.
      *
      * @param entity The entity to create the insert statement of.
+     * @param isNative True if the query is native, false otherwise.
      * @param <S>    The entity type.
      * @return The generated query data.
      */
-    public static <S> QueryData generateInsertStatement(@NotNull S entity) {
+    public static <S> QueryData generateInsertStatement(@NotNull S entity, boolean isNative) {
         Map<Integer, Object> bindings = new HashMap<>(entity.getClass().getDeclaredFields().length);
-        String entityTable = getEntityTable(entity.getClass());
-        String query = INSERT_INTO + entityTable + getEntityColumnsIntoValues(entity, bindings);
+        String entityTable = isNative ? getEntityTable(entity.getClass()) : entity.getClass().getSimpleName();
+        String query = INSERT_INTO + entityTable + getEntityColumnsIntoValues(entity, bindings, isNative);
         return new QueryData(query, bindings);
     }
 
     /**
-     * Generate a native update statement query.
+     * Generate a update statement query.
      *
      * @param entity The entity to get the columns as a {@link StringBuilder} representation of.
+     * @param isNative True if the query is native, false otherwise.
      * @param <S>    The entity type.
      * @return The generated query fragment.
      */
-    public static <S> QueryData generateUpdateStatement(@NotNull S entity) {
-        String entityTable = getEntityTable(entity.getClass());
+    public static <S> QueryData generateUpdateStatement(@NotNull S entity, boolean isNative) {
+        String entityTable = isNative ? getEntityTable(entity.getClass()) : entity.getClass().getSimpleName();
         List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity);
-        Map<Integer, Object> bindings = new HashMap<>(columns.size());
-        StringBuilder columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, bindings);
-        String query = "UPDATE " + entityTable + columnsAndWhereClause;
-        return new QueryData(query, bindings);
+        QueryData columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, isNative);
+        String query = "UPDATE " + entityTable + columnsAndWhereClause.getQuery();
+        return new QueryData(query, columnsAndWhereClause.getPositionBindings());
 
     }
 
     /**
-     * Generates a native partial update statement query and updates the bindings map.
+     * Generates a partial update statement query and updates the bindings map.
      *
      * @param entity         The entity to get the columns as a {@link StringBuilder} representation of.
      * @param fieldsToUpdate The names of the fields to update.
+     * @param isNative       True if the query is native, false otherwise.
      * @param <S>            The entity type.
      * @return The generated query fragment.
      * @throws IllegalArgumentException if there are no fields to update.
      */
     public static <S> QueryData generateUpdateStatement(@NotNull S entity,
-                                                        @NotNull Set<String> fieldsToUpdate) {
+                                                        @NotNull Set<String> fieldsToUpdate,
+                                                        boolean isNative) {
         if (fieldsToUpdate.isEmpty())
             throw new IllegalArgumentException("Partial update must have at least one field to be updated");
 
-        String entityTable = getEntityTable(entity.getClass());
+        String entityTable = isNative ? getEntityTable(entity.getClass()) : entity.getClass().getSimpleName();
         List<EntityField> columns = EntityReflectionUtils.getEntityColumns(entity).stream()
                 .filter(item -> item.isId() || fieldsToUpdate.contains(item.getFieldName())).toList();
         if (columns.stream().allMatch(EntityField::isId))
             throw new IllegalArgumentException("The fields to update must contain at least one non-id field");
 
-        Map<Integer, Object> bindings = new HashMap<>(columns.size());
-        StringBuilder columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, bindings);
-        String query = "UPDATE " + entityTable + columnsAndWhereClause;
+        QueryData columnsAndWhereClause = generateUpdateColumnsAndWhereClause(columns, isNative);
+        String query = "UPDATE " + entityTable + columnsAndWhereClause.getQuery();
 
-        return new QueryData(query, bindings);
+        return new QueryData(query, columnsAndWhereClause.getPositionBindings());
     }
 
     /**
-     * Generates a native delete statement query.
+     * Generates a delete statement query.
      *
      * @param id          The id to create the delete statement of.
      * @param entityClass The entity to delete given the id.
+     * @param isNative    True if the query is native, false otherwise.
      * @param <I>         The id type.
      * @param <S>         The entity type.
      * @return The generated query data.
      */
-    public static <I, S> QueryData generateDeleteStatement(@NotNull I id, @NotNull Class<S> entityClass) {
+    public static <I, S> QueryData generateDeleteStatement(@NotNull I id, @NotNull Class<S> entityClass,
+                                                           boolean isNative) {
         String tableAlias = "ttd";
-        QueryData queryPair = getNativeWhereClauseFilteringByPrimaryKeys(List.of(id), entityClass, tableAlias);
-        String query = "DELETE FROM " + getEntityTable(entityClass) + queryPair.getQuery();
+        String entityTable = isNative ? getEntityTable(entityClass) : entityClass.getSimpleName();
+        QueryData queryPair = getWhereClauseFilteringByPrimaryKeys(List.of(id), entityClass, tableAlias, isNative);
+        String query = "DELETE FROM " + entityTable + queryPair.getQuery();
         return new QueryData(query.replace("ttd.", ""), queryPair.getPositionBindings());
     }
 
@@ -372,13 +389,13 @@ public class QueryBuilderUtils {
      * @param entries The entries to generate the insert of.
      * @return The multi-row insert with the bindings.
      */
-    public static <S> QueryData generateMultiInsertStatement(@NotNull Collection<S> entries) {
+    public static <S> QueryData generateMultiInsertStatement(@NotNull Collection<S> entries, boolean isNative) {
         S entity = entries.stream().filter(Objects::nonNull).findFirst()
                 .orElseThrow(() -> new EntityReflectionException("Can't get table name of null collection object"));
-        Map<Integer, Object> bindings = new HashMap<>(
-                entity.getClass().getDeclaredFields().length * entries.size());
-        String query = INSERT_INTO + getEntityTable(entity.getClass()) + getMultipleEntityColumnsIntoValues(entries, bindings);
-        return new QueryData(query, bindings);
+        String entityTable = isNative ? getEntityTable(entity.getClass()) : entity.getClass().getSimpleName();
+        QueryData queryData = getMultipleEntityColumnsIntoValues(entries, isNative);
+        String query = INSERT_INTO + entityTable + queryData.getQuery();
+        return new QueryData(query, queryData.getPositionBindings());
     }
 
     /**
@@ -396,11 +413,10 @@ public class QueryBuilderUtils {
             @NotNull String sequenceName) {
         S entity = entries.stream().filter(Objects::nonNull).findFirst()
                 .orElseThrow(() -> new EntityReflectionException("Can't get table name of null collection object"));
-        Map<Integer, Object> bindings = new HashMap<>(entity.getClass().getDeclaredFields().length *
-                entries.size());
+        QueryData queryData = getMultipleEntityColumnsIntoValuesWithSequence(entries, idField, sequenceName);
         String query = INSERT_INTO + getEntityTable(entity.getClass()) +
-                getMultipleEntityColumnsIntoValuesWithSequence(entries, bindings, idField, sequenceName);
-        return new QueryData(query, bindings);
+                queryData.getQuery();
+        return new QueryData(query, queryData.getPositionBindings());
     }
 
     /**
@@ -418,7 +434,7 @@ public class QueryBuilderUtils {
 
         for (Iterable<?> entityList : entriesToInsert) {
             for (Object entity : entityList) {
-                insertQuery.append(generateIntoStatement(entity, bindings)).append(" ");
+                insertQuery.append(generateIntoStatement(entity, bindings, true)).append(" ");
             }
         }
 
@@ -452,7 +468,7 @@ public class QueryBuilderUtils {
         for (S entity : entryList) {
             if (insertQuery.isEmpty()) {
                 insertQuery.append(INSERT_INTO).append(getEntityTable(entity.getClass()))
-                        .append(" (").append(getEntityColumnsWithIdFirst(entity, idParamToGenerate))
+                        .append(" (").append(getJoinedEntityColumnsWithIdFirst(entity, idParamToGenerate))
                         .append(") SELECT ").append(sequence)
                         .append(".nextval, mt.* FROM(");
             } else {
@@ -496,7 +512,7 @@ public class QueryBuilderUtils {
             int end = Math.min((i + 1) * batchSize, entries.size());
             List<?> batchEntries = entriesAsList.subList(start, end);
             for (Object entry : batchEntries) {
-                QueryData queryData = generateInsertStatement(entry);
+                QueryData queryData = generateInsertStatement(entry, true);
                 batchData.setQuery(queryData.getQuery());
                 batchData.getQueriesBindings().add(queryData.getPositionBindings());
             }
@@ -531,7 +547,7 @@ public class QueryBuilderUtils {
             batchData.setQueriesBindings(new ArrayList<>(batchSize));
             List<?> batchEntries = entriesAsList.subList(start, end);
             for (Object entry : batchEntries) {
-                QueryData queryData = generateUpdateStatement(entry);
+                QueryData queryData = generateUpdateStatement(entry, true);
                 batchData.setQuery(queryData.getQuery());
                 batchData.getQueriesBindings().add(queryData.getPositionBindings());
             }
@@ -570,8 +586,8 @@ public class QueryBuilderUtils {
 
             for (Object entryId : batchEntries) {
                 String tableAlias = "ttd";
-                QueryData whereClause = getNativeWhereClauseFilteringByPrimaryKeys(List.of(entryId), entityClass,
-                        tableAlias);
+                QueryData whereClause = getWhereClauseFilteringByPrimaryKeys(List.of(entryId), entityClass,
+                        tableAlias, true);
                 String query = "DELETE FROM " + entityTable + " " + tableAlias + whereClause.getQuery();
                 batchData.setQuery(query);
                 batchData.getQueriesBindings().add(whereClause.getPositionBindings());
@@ -754,38 +770,10 @@ public class QueryBuilderUtils {
      * @return The where clause and the bindings.
      */
     private static QueryData generateSinglePrimaryKeyWhereClause(
-            List<List<EntityField>> idFields) {
+            List<List<EntityField>> idFields, boolean isNative) {
         StringBuilder whereClause = new StringBuilder(WHERE_CLAUSE_START);
         List<EntityField> allEntries = idFields.stream().flatMap(java.util.List::stream).toList();
-        String fieldName = allEntries.get(0).getFieldName();
-
-        Map<Integer, Object> bindings = new HashMap<>(allEntries.size());
-
-        if (allEntries.size() == 1) {
-            bindings.put(1, allEntries.get(0).getValue());
-            return new QueryData(whereClause.append(fieldName).append("= ?1").toString(), bindings);
-        }
-
-        whereClause.append(fieldName).append(" IN (");
-        for (EntityField field : allEntries) {
-            bindings.put(bindings.size() + 1, field.getValue());
-            whereClause.append("?").append(bindings.size()).append(", ");
-        }
-
-        return new QueryData(whereClause.substring(0, whereClause.length() - 2) + ")", bindings);
-    }
-
-    /**
-     * Generates the where clause filtering by primary keys.
-     *
-     * @param idFields The id fields.
-     * @return The where clause and the bindings.
-     */
-    private static QueryData generateNativeSinglePrimaryKeyWhereClause(
-            List<List<EntityField>> idFields) {
-        StringBuilder whereClause = new StringBuilder(WHERE_CLAUSE_START);
-        List<EntityField> allEntries = idFields.stream().flatMap(java.util.List::stream).toList();
-        String fieldName = allEntries.get(0).getColumnName();
+        String fieldName = isNative ? allEntries.get(0).getColumnName() : allEntries.get(0).getFieldName();
 
         Map<Integer, Object> bindings = new HashMap<>(allEntries.size());
 
@@ -811,7 +799,7 @@ public class QueryBuilderUtils {
      * @return The where clause and the bindings.
      */
     private static QueryData generateMultiPrimaryKeyWhereClause(
-            List<List<EntityField>> idFields, int idClassFieldsSize) {
+            List<List<EntityField>> idFields, int idClassFieldsSize, boolean isNative) {
         StringBuilder whereClause = new StringBuilder(WHERE_CLAUSE_START);
         Map<Integer, Object> bindings = new HashMap<>(idFields.size() * idClassFieldsSize);
         StringBuilder idClauses = new StringBuilder();
@@ -829,76 +817,12 @@ public class QueryBuilderUtils {
                 }
 
                 bindings.put(bindings.size() + 1, field.getValue());
-                entryWhereClause.append(field.getFieldName()).append(" = ?").append(bindings.size());
+                entryWhereClause.append(isNative ? field.getColumnName() : field.getFieldName())
+                        .append(" = ?").append(bindings.size());
             }
             entryWhereClause.append(')');
             idClauses.append(entryWhereClause);
         }
         return new QueryData(whereClause.append(idClauses).toString(), bindings);
-    }
-
-    /**
-     * Generates the where clause filtering by primary keys for a multi-primary key entity.
-     *
-     * @param idFields The id fields.
-     * @return The where clause and the bindings.
-     */
-    private static QueryData generateNativeMultiPrimaryKeyWhereClause(
-            List<List<EntityField>> idFields, int idClassFieldsSize) {
-        StringBuilder whereClause = new StringBuilder(WHERE_CLAUSE_START);
-        Map<Integer, Object> bindings = new HashMap<>(idFields.size() * idClassFieldsSize);
-        StringBuilder idClauses = new StringBuilder();
-        StringBuilder entryWhereClause = new StringBuilder();
-        for (List<EntityField> entryFields : idFields) {
-            if (!entryWhereClause.isEmpty()) {
-                idClauses.append(" OR ");
-            }
-            entryWhereClause = new StringBuilder();
-            for (EntityField field : entryFields) {
-                if (entryWhereClause.isEmpty()) {
-                    entryWhereClause.append("(");
-                } else {
-                    entryWhereClause.append(AND);
-                }
-
-                bindings.put(bindings.size() + 1, field.getValue());
-                entryWhereClause.append(field.getColumnName()).append(" = ?").append(bindings.size());
-            }
-            entryWhereClause.append(')');
-            idClauses.append(entryWhereClause);
-        }
-        return new QueryData(whereClause.append(idClauses).toString(), bindings);
-    }
-
-    /**
-     * Generates the where clause filtering by primary keys.
-     *
-     * @param idFields The id fields.
-     * @return The where clause and the bindings.
-     */
-    private static QueryData generateNativePkWhereClause(
-            List<EntityField> idFields) {
-        StringBuilder whereClause = new StringBuilder(WHERE_CLAUSE_START);
-
-        Map<Integer, Object> bindings = new HashMap<>(idFields.size());
-
-        if (idFields.size() == 1) {
-            bindings.put(1, idFields.get(0).getValue());
-            return new QueryData(whereClause.append(idFields.get(0).getColumnName()).append("= ?1").toString(), bindings);
-        }
-
-        StringBuilder paramsClause = new StringBuilder();
-        for (EntityField field : idFields) {
-            if (!paramsClause.isEmpty()) {
-                paramsClause.append(AND);
-            }
-            paramsClause.append(field.getColumnName()).append(" = ?");
-            bindings.put(bindings.size() + 1, field.getValue());
-            paramsClause.append(bindings.size());
-        }
-
-        whereClause.append(paramsClause);
-
-        return new QueryData(whereClause.toString(), bindings);
     }
 }

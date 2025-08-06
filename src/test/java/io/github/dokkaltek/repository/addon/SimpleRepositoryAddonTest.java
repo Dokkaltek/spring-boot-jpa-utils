@@ -125,7 +125,7 @@ class SimpleRepositoryAddonTest {
     }
 
     /**
-     * Tests {@link SimpleRepositoryAddonImpl#persistAll(Iterable)} method.
+     * Tests {@link SimpleRepositoryAddonImpl#persistAllAndFlush(Iterable)} method.
      */
     @Test
     @DisplayName("Test persisting a collection of entities and flushing")
@@ -173,25 +173,25 @@ class SimpleRepositoryAddonTest {
     }
 
     /**
-     * Tests {@link SimpleRepositoryAddonImpl#deleteById(Object, Class)} method.
+     * Tests {@link SimpleRepositoryAddonImpl#removeById(Object, Class)} method.
      */
     @Test
     @DisplayName("Test deleting an entry by id")
-    void testDeleteById() {
+    void testRemoveById() {
         // Remove the item and then search it to make sure it were deleted
-        assertTrue(repository.deleteById(5L, TestEntity.class));
+        assertTrue(repository.removeById(5L, TestEntity.class));
         Optional<TestEntity> result = repository.findById(5L);
         assertTrue(result.isEmpty());
     }
 
     /**
-     * Tests {@link SimpleRepositoryAddonImpl#deleteAllById(Iterable, Class)} method.
+     * Tests {@link SimpleRepositoryAddonImpl#removeAllById(Iterable, Class)} method.
      */
     @Test
     @DisplayName("Test deleting a list of entities by id")
-    void testDeleteAllById() {
+    void testRemoveAllById() {
         // Remove them and then search them to make sure they were deleted
-        assertEquals(2, repository.deleteAllById(List.of(4L, 5L), TestEntity.class));
+        assertEquals(2, repository.removeAllById(List.of(4L, 5L), TestEntity.class));
         List<TestEntity> result = repository.findAllById(List.of(4L, 5L));
         assertEquals(0, result.size());
     }
