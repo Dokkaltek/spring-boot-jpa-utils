@@ -16,9 +16,12 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -27,6 +30,84 @@ import java.util.regex.Pattern;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class SpecificationUtils {
     private static final Pattern DOT_PATTERN = Pattern.compile("\\.");
+
+    /**
+     * Generates an empty specification so that you can chain other ones to it.
+     *
+     * @param <T> The type of the entity.
+     * @return An empty {@link Specification}.
+     */
+    public static <T> Specification<T> createEmptySpec() {
+        return (Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) -> null;
+    }
+
+    /**
+     * Generates the combined specification of a set of specifications. If any of them is null it won't be chained.
+     * If all of them are null, a null specification will be returned.
+     *
+     * @param specification The base specification to use.
+     * @param otherSpecs    Suppliers for the other possible specifications to use.
+     * @return The combined specification joined with ands.
+     */
+    @SafeVarargs
+    public static <T> Specification<T> joinSpecsUsingAnd(Specification<T> specification,
+                                                         Supplier<Specification<T>>... otherSpecs) {
+        if (otherSpecs == null || otherSpecs.length == 0) {
+            return specification;
+        }
+
+        if (specification != null) {
+            Specification<T> baseSpec = specification;
+
+            for (Supplier<Specification<T>> specArg : otherSpecs) {
+                Specification<T> otherSpec = specArg.get();
+                if (otherSpec != null) {
+                    baseSpec = baseSpec.and(otherSpec);
+                }
+            }
+            return baseSpec;
+        } else {
+            return Arrays.stream(otherSpecs)
+                    .map(Supplier::get)
+                    .filter(Objects::nonNull)
+                    .reduce(Specification::and)
+                    .orElse(null);
+        }
+    }
+
+    /**
+     * Generates the combined specification of a set of specifications. If any of them is null it won't be chained.
+     * If all of them are null, a null specification will be returned.
+     *
+     * @param specification The base specification to use.
+     * @param otherSpecs    Suppliers for the other possible specifications to use.
+     * @return The combined specification joined with ands.
+     */
+    @SafeVarargs
+    public static <T> Specification<T> joinSpecsUsingOr(Specification<T> specification,
+                                                        Supplier<Specification<T>>... otherSpecs) {
+        if (otherSpecs == null || otherSpecs.length == 0) {
+            return specification;
+        }
+
+        if (specification != null) {
+            Specification<T> baseSpec = specification;
+
+            for (Supplier<Specification<T>> specArg : otherSpecs) {
+                Specification<T> otherSpec = specArg.get();
+                if (otherSpec != null) {
+                    baseSpec = baseSpec.or(otherSpec);
+                }
+            }
+            return baseSpec;
+        } else {
+            return Arrays.stream(otherSpecs)
+                    .map(Supplier::get)
+                    .filter(Objects::nonNull)
+                    .reduce(Specification::or)
+                    .orElse(null);
+        }
+    }
 
     /**
      * Generates a specification that matches any row that contains null or the value for the passed field.

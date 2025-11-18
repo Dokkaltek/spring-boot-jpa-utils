@@ -41,6 +41,50 @@ class SpecificationUtilsTest {
     private TestRepository repository;
 
     /**
+     * Tests {@link SpecificationUtils#createEmptySpec()}
+     */
+    @Test
+    @DisplayName("Test creating an empty specification")
+    void testCreateEmptySpec() {
+        Specification<TestEntity> spec = SpecificationUtils.createEmptySpec();
+        List<TestEntity> result = repository.findAll(spec);
+        List<TestEntity> noSpecResult = repository.findAll();
+
+        assertEquals(result, noSpecResult);
+    }
+
+    /**
+     * Tests {@link SpecificationUtils#joinSpecsUsingAnd}.
+     */
+    @Test
+    @DisplayName("Test joining multiple specifications with and")
+    void testJoinSpecsUsingAnd() {
+        Specification<TestEntity> spec = SpecificationUtils.joinSpecsUsingAnd(
+                SpecificationUtils.matchIfNull("description"),
+                () -> null,
+                () -> SpecificationUtils.matchExactValue(34, "age"));
+        List<TestEntity> result = repository.findAll(spec);
+
+        assertEquals(1, result.size());
+        assertEquals("Manolo", result.get(0).getName());
+    }
+
+    /**
+     * Tests {@link SpecificationUtils#joinSpecsUsingAnd}.
+     */
+    @Test
+    @DisplayName("Test joining multiple specifications with or")
+    void testJoinSpecsUsingOr() {
+        Specification<TestEntity> spec = SpecificationUtils.joinSpecsUsingOr(
+                SpecificationUtils.matchIfNotNull("description"),
+                () -> null,
+                () -> SpecificationUtils.matchExactValue(34, "age"));
+        List<TestEntity> result = repository.findAll(spec);
+
+        assertEquals(2, result.size());
+    }
+
+    /**
      * Tests {@link SpecificationUtils#matchNullableValue} method.
      */
     @Test

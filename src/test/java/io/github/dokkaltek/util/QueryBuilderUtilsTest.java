@@ -100,7 +100,7 @@ class QueryBuilderUtilsTest {
     void testGetMultipleEntityColumnsIntoValuesWithSequence() {
 
         QueryData query = getMultipleEntityColumnsIntoValuesWithSequence(List.of(sampleEntity, sampleEntity),
-                 "embeddedId.id", null);
+                "embeddedId.id", null);
 
         assertTrue(query.getQuery().contains("sample_seq.nextval"));
         assertTrue(query.getQuery().contains("(id, entity2, name, desc) VALUES"));
@@ -311,7 +311,7 @@ class QueryBuilderUtilsTest {
         assertNotNull(resultPair);
         assertEquals(
                 "INSERT INTO SampleIdClassEntity (id, entity, name, description) VALUES (?1, ?2, ?3, ?4), " +
-                "(?5, ?6, ?7, ?8)", resultPair.getQuery());
+                        "(?5, ?6, ?7, ?8)", resultPair.getQuery());
         assertEquals(8, resultPair.getPositionBindings().size());
 
     }

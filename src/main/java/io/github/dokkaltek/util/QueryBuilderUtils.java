@@ -137,16 +137,16 @@ public class QueryBuilderUtils {
      * Generates the '(columns) VALUES (values), (more values) ...' sql part of the insert query and updates the
      * bindings map.
      *
-     * @param entries  The entries to generate the part of.
-     * @param idField  The id field of the entity.
+     * @param entries      The entries to generate the part of.
+     * @param idField      The id field of the entity.
      * @param sequenceName The name of the sequence to use.
-     * @param <S>      The entity type.
+     * @param <S>          The entity type.
      * @return The generated query fragment.
      * @throws BatchOperationException If the passed collection is empty.
      */
     public static <S> QueryData getMultipleEntityColumnsIntoValuesWithSequence(@NotNull @NotEmpty Collection<S> entries,
-                                                                                   @NotNull String idField,
-                                                                                   String sequenceName) {
+                                                                               @NotNull String idField,
+                                                                               String sequenceName) {
         StringBuilder mainQuery = new StringBuilder();
         S entity = entries.iterator().next();
         Map<Integer, Object> bindings = new HashMap<>(entity.getClass().getDeclaredFields().length *
@@ -167,7 +167,7 @@ public class QueryBuilderUtils {
     /**
      * Gets the entity columns joined by commas.
      *
-     * @param entry   The entry to get the columns of.
+     * @param entry    The entry to get the columns of.
      * @param isNative Whether the query is native or not.
      * @return A string with columns of the entity separated with commas.
      */
@@ -307,9 +307,9 @@ public class QueryBuilderUtils {
     /**
      * Generate a insert statement query.
      *
-     * @param entity The entity to create the insert statement of.
+     * @param entity   The entity to create the insert statement of.
      * @param isNative True if the query is native, false otherwise.
-     * @param <S>    The entity type.
+     * @param <S>      The entity type.
      * @return The generated query data.
      */
     public static <S> QueryData generateInsertStatement(@NotNull S entity, boolean isNative) {
@@ -322,9 +322,9 @@ public class QueryBuilderUtils {
     /**
      * Generate a update statement query.
      *
-     * @param entity The entity to get the columns as a {@link StringBuilder} representation of.
+     * @param entity   The entity to get the columns as a {@link StringBuilder} representation of.
      * @param isNative True if the query is native, false otherwise.
-     * @param <S>    The entity type.
+     * @param <S>      The entity type.
      * @return The generated query fragment.
      */
     public static <S> QueryData generateUpdateStatement(@NotNull S entity, boolean isNative) {
