@@ -325,7 +325,7 @@ public class EntityReflectionUtils {
         if (idClass != null) {
             Constructor<I> constructor;
             try {
-                constructor = idClass.value().getConstructor(idFields.stream()
+                constructor = (Constructor<I>) idClass.value().getConstructor(idFields.stream()
                         .map(Field::getType).toArray(Class<?>[]::new));
                 return constructor.newInstance(idFields.stream()
                         .map(field -> getField(entity, field.getName())).toArray(Object[]::new));
