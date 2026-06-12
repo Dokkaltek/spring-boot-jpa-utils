@@ -24,13 +24,21 @@ allow you to perform batch operations, or EntityManager operations.
 
 ## Installation
 
-You just need to add the dependency to your pom:
+You just need to add the dependency to your pom depending on the version of spring boot you are using:
 
 ``` xml
+<!-- Spring boot 3.5.x -->
 <dependency>
     <groupId>io.github.dokkaltek</groupId>
     <artifactId>spring-boot-jpa-utils</artifactId>
     <version>1.0.1</version>
+</dependency>
+
+<!-- Spring boot 4.x+ -->
+<dependency>
+    <groupId>io.github.dokkaltek</groupId>
+    <artifactId>spring-boot-jpa-utils</artifactId>
+    <version>1.1.0</version>
 </dependency>
 ```
 
